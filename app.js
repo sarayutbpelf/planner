@@ -7,7 +7,9 @@
 
   const STORAGE_KEY = "execcal_data_v1";
   const GAS_URL_KEY = "execcal_gas_url";
+  const GAS_DISCONNECTED_KEY = "execcal_gas_disconnected";
   const LAST_SYNC_KEY = "execcal_last_sync";
+  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzFVqSFyFGe0KXfFMNHGoroYFPGX_XNwTJfEd6GfOmAo92qQ7COBGxKrhgI26jw6wHyMg/exec";
   const COLOR_ORDER = ["pink", "teal", "lavender", "peach", "ochre", "cream"];
   const DOW_SHORT = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
   const DOW_FULL = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
@@ -130,9 +132,19 @@
      ============================================================ */
   let syncInFlight = false;
 
-  function getSheetUrl() { return (localStorage.getItem(GAS_URL_KEY) || "").trim(); }
-  function setSheetUrl(url) { localStorage.setItem(GAS_URL_KEY, url.trim()); }
-  function clearSheetUrl() { localStorage.removeItem(GAS_URL_KEY); localStorage.removeItem(LAST_SYNC_KEY); }
+  function getSheetUrl() {
+    if (localStorage.getItem(GAS_DISCONNECTED_KEY) === "1") return "";
+    return (localStorage.getItem(GAS_URL_KEY) || DEFAULT_GAS_URL).trim();
+  }
+  function setSheetUrl(url) {
+    localStorage.setItem(GAS_URL_KEY, url.trim());
+    localStorage.removeItem(GAS_DISCONNECTED_KEY);
+  }
+  function clearSheetUrl() {
+    localStorage.removeItem(GAS_URL_KEY);
+    localStorage.removeItem(LAST_SYNC_KEY);
+    localStorage.setItem(GAS_DISCONNECTED_KEY, "1");
+  }
   function getLastSync() { return localStorage.getItem(LAST_SYNC_KEY); }
   function setLastSync() { localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString()); }
 
