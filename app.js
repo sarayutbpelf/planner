@@ -254,7 +254,15 @@
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action, payload }),
       });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        // Apps Script returned something that isn't JSON — almost always means the
+        // deployment itself is broken/misconfigured (e.g. an HTML error/login page
+        // came back instead), not a normal application error.
+        throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (ไม่ใช่ JSON) — ตรวจสอบว่า deploy Apps Script ล่าสุดแล้วและตั้งค่า 'Who has access: Anyone'");
+      }
       if (!data.ok) throw new Error(data.error || "push failed");
       applyRemoteData(data);
       renderAll();
@@ -263,7 +271,7 @@
     } catch (err) {
       console.warn("pushToSheet failed", err);
       updateSyncStatus("error");
-      toast("บันทึกขึ้น Google Sheet ไม่สำเร็จ (ข้อมูลยังอยู่ในเครื่องนี้)");
+      toast(`⚠️ บันทึกขึ้น Google Sheet ไม่สำเร็จ: ${err.message || err}`, 6000);
       return false;
     }
   }
@@ -300,11 +308,11 @@
 
   /* ---------- toast ---------- */
   let toastTimer = null;
-  function toast(msg) {
+  function toast(msg, durationMs) {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), durationMs || 2200);
   }
 
   /* ---------- overlay helpers ---------- */

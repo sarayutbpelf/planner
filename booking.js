@@ -10,7 +10,8 @@
 
   const $ = (sel) => document.querySelector(sel);
   const params = new URLSearchParams(window.location.search);
-  const gasUrl = (params.get("gas") || "").trim();
+  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzFVqSFyFGe0KXfFMNHGoroYFPGX_XNwTJfEd6GfOmAo92qQ7COBGxKrhgI26jw6wHyMg/exec";
+  const gasUrl = (params.get("gas") || DEFAULT_GAS_URL || "").trim();
 
   let executives = [];
   let appointments = [];

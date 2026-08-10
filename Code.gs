@@ -126,7 +126,11 @@ function loadData_() {
       title: String(r.Title || '').trim(),
       location: String(r.Location || '').trim(),
       notes: String(r.Notes || '').trim(),
-      status: (String(r.Status || '').trim().toLowerCase() || 'confirmed'),
+      // Any row without an explicit Status is treated as PENDING — this covers rows
+      // typed directly into the sheet, not just requests submitted via booking.html.
+      // Nothing shows up as a confirmed appointment anywhere until someone explicitly
+      // approves it (or the admin app writes 'confirmed' itself when saving a form).
+      status: (String(r.Status || '').trim().toLowerCase() || 'pending'),
       requestedBy: String(r.RequestedBy || '').trim(),
       requestedContact: String(r.RequestedContact || '').trim(),
       requestNote: String(r.RequestNote || '').trim(),
