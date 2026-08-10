@@ -1324,7 +1324,19 @@
      ============================================================ */
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(err => console.warn("SW registration failed", err));
+      navigator.serviceWorker.register("sw.js")
+        .then((reg) => reg.update().catch(() => {})) // force an immediate check for a newer sw.js on every load
+        .catch(err => console.warn("SW registration failed", err));
+
+      // sw.js calls skipWaiting()+clients.claim() on every new version, so once a
+      // newer service worker takes over, reload this tab once to pick up the new
+      // app.js/HTML instead of continuing to run the old code that's already loaded.
+      let reloadedOnce = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloadedOnce) return;
+        reloadedOnce = true;
+        window.location.reload();
+      });
     });
   }
   window.addEventListener("beforeinstallprompt", (e) => {

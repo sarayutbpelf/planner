@@ -1,5 +1,5 @@
 /* ExecCal service worker — app-shell caching for offline use */
-const CACHE_NAME = "execcal-cache-v2";
+const CACHE_NAME = "execcal-cache-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -35,25 +35,28 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
-  // App shell: cache-first
+  // App shell (same-origin): NETWORK-FIRST. This is an actively-updated app —
+  // always prefer the latest index.html/app.js/etc. from the server, and only
+  // fall back to the cached copy if the network is unreachable (offline use).
+  // A cache-first strategy here would silently keep serving old JS/HTML
+  // indefinitely after every deploy, which is worse than a slower first paint.
   const url = new URL(req.url);
   if (url.origin === location.origin) {
     event.respondWith(
-      caches.match(req).then((cached) => {
-        if (cached) return cached;
-        return fetch(req)
-          .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-            return res;
-          })
-          .catch(() => cached);
-      })
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  // Cross-origin (fonts, html2canvas CDN): stale-while-revalidate
+  // Cross-origin (fonts, html2canvas CDN): stale-while-revalidate — these
+  // change rarely, so serving a cached copy immediately while refreshing in
+  // the background is a good trade-off.
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req)

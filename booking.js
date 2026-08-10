@@ -208,4 +208,19 @@
   });
 
   init();
+
+  /* Service worker: register + auto-reload once a newer version takes over. */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js")
+        .then((reg) => reg.update().catch(() => {}))
+        .catch(() => {});
+      let reloadedOnce = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloadedOnce) return;
+        reloadedOnce = true;
+        window.location.reload();
+      });
+    });
+  }
 })();
