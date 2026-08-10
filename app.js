@@ -84,15 +84,28 @@
   }
   // Find a CONFIRMED appointment under a DIFFERENT position but the SAME real person
   // that overlaps [start,end) on `date`. Returns null if none.
-  function findCrossPositionConflict(execId, date, start, end, excludeApptId) {
+  // Find another appointment (any of the given statuses, default confirmed+pending) that
+  // overlaps [start,end) on `date` for the SAME PERSON — covers both "same position double-booked"
+  // and "different position of the same person" in one check, since the person's own group
+  // always includes their own execId.
+  function findOverlap(execId, date, start, end, excludeApptId, statuses) {
+    statuses = statuses || ["confirmed", "pending"];
     const group = personGroupExecIds(execId);
     return state.appointments.find(a =>
       a.id !== excludeApptId &&
-      a.status === "confirmed" &&
+      statuses.includes(a.status) &&
       group.has(a.execId) &&
       a.date === date &&
       toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
     ) || null;
+  }
+  // Backward-compatible alias used by the appointment-form conflict check (confirmed-only, blocking).
+  function findCrossPositionConflict(execId, date, start, end, excludeApptId) {
+    return findOverlap(execId, date, start, end, excludeApptId, ["confirmed"]);
+  }
+  // Any OTHER pending request overlapping the same time — used to flag "competing requests" to the admin.
+  function findPendingConflict(execId, date, start, end, excludeApptId) {
+    return findOverlap(execId, date, start, end, excludeApptId, ["pending"]);
   }
   function apptsForDate(dateISO) {
     return state.appointments
@@ -173,11 +186,16 @@
     const n = pendingCount();
     if (lastKnownPendingCount !== null && n > lastKnownPendingCount) {
       const added = n - lastKnownPendingCount;
-      toast(`🔔 มีคำขอนัดหมายใหม่รออนุมัติ ${added} รายการ`);
+      // Does any pending item right now have a scheduling conflict that needs a decision?
+      const hasConflict = state.appointments.some(a =>
+        a.status === "pending" && findOverlap(a.execId, a.date, a.start, a.end, a.id, ["confirmed", "pending"])
+      );
+      const conflictNote = hasConflict ? " ⚠️ มีเวลาซ้อนทับ ต้องพิจารณา" : "";
+      toast(`🔔 มีคำขอนัดหมายใหม่รออนุมัติ ${added} รายการ${conflictNote}`);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         try {
           new Notification("ExecCal — มีคำขอนัดหมายใหม่", {
-            body: `มีคำขอนัดหมายรออนุมัติเพิ่มขึ้น ${added} รายการ (รวม ${n} รายการ)`,
+            body: `มีคำขอนัดหมายรออนุมัติเพิ่มขึ้น ${added} รายการ (รวม ${n} รายการ)${hasConflict ? " — บางรายการเวลาซ้อนทับ ต้องพิจารณาก่อนอนุมัติ" : ""}`,
             icon: "icons/icon-192.png",
           });
         } catch (e) { /* Notification constructor can fail on some mobile browsers; toast already shown */ }
@@ -338,10 +356,14 @@
     const ex = execById(a.execId);
     const cls = colorClass(ex ? ex.colorKey : "cream");
     const pending = a.status === "pending";
-    const crossConflict = a.status === "confirmed" ? findCrossPositionConflict(a.execId, a.date, a.start, a.end, a.id) : null;
+    // Confirmed items only ever conflict with another confirmed item (shouldn't normally
+    // happen — server blocks it — but flag it if it somehow does, e.g. edited directly in the Sheet).
+    // Pending items are checked against BOTH confirmed and other pending items, since two people
+    // can each request the same slot before either is approved.
+    const conflict = findOverlap(a.execId, a.date, a.start, a.end, a.id, pending ? ["confirmed", "pending"] : ["confirmed"]);
     return `<div class="appt-card ${cls} ${pending ? "pending" : ""}" data-appt-id="${a.id}">
         ${pending ? `<span class="appt-pending-badge">รออนุมัติ</span>` : ""}
-        ${crossConflict ? `<span class="appt-pending-badge" style="background:var(--error); color:#fff;" title="ซ้อนกับตำแหน่งอื่นของคนเดียวกัน">⚠️ ซ้อนตำแหน่ง</span>` : ""}
+        ${conflict ? `<span class="appt-pending-badge" style="background:var(--error); color:#fff;" title="เวลาซ้อนทับกับนัดหมายอื่น ต้องพิจารณา">⚠️ เวลาซ้อนทับ</span>` : ""}
         <span class="appt-time">${a.start}–${a.end}</span>
         <span class="appt-title">${escapeHtml(a.title)}</span>
         <span class="appt-meta">
@@ -1006,6 +1028,23 @@
     listEl.innerHTML = pending.map(a => {
       const ex = execById(a.execId);
       const d = parseISO(a.date);
+      // Flag if this request overlaps ANY other appointment (confirmed or another
+      // pending request) for the same person — across all of their positions —
+      // so the executive can see at a glance that a decision is needed.
+      const conflict = findOverlap(a.execId, a.date, a.start, a.end, a.id, ["confirmed", "pending"]);
+      let conflictHTML = "";
+      if (conflict) {
+        const conflictEx = execById(conflict.execId);
+        if (conflict.status === "confirmed") {
+          conflictHTML = `<div class="body-sm" style="color:var(--error); font-weight:600; margin-top:6px;">
+            ⚠️ เวลานี้ถูกยืนยันให้ "${escapeHtml(conflict.title)}"${conflictEx && conflictEx.id !== a.execId ? ` (ตำแหน่ง ${escapeHtml(conflictEx.name)})` : ""} ไปแล้ว (${conflict.start}–${conflict.end})
+          </div>`;
+        } else {
+          conflictHTML = `<div class="body-sm" style="color:var(--warning); font-weight:600; margin-top:6px;">
+            ⚠️ เวลาซ้อนกับอีกคำขอหนึ่ง${conflictEx && conflictEx.id !== a.execId ? ` (ตำแหน่ง ${escapeHtml(conflictEx.name)})` : ""}: "${escapeHtml(conflict.title)}" โดย ${escapeHtml(conflict.requestedBy || "ไม่ระบุชื่อ")} (${conflict.start}–${conflict.end}) — กรุณาเลือกอนุมัติเพียงรายการเดียว
+          </div>`;
+        }
+      }
       return `<div class="testimonial-card" data-id="${a.id}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div>
@@ -1014,6 +1053,7 @@
             <div class="body-sm">👔 ${escapeHtml(ex ? ex.name : "—")}</div>
             ${a.requestedBy ? `<div class="body-sm">👤 ${escapeHtml(a.requestedBy)}${a.requestedContact ? " · " + escapeHtml(a.requestedContact) : ""}</div>` : ""}
             ${a.requestNote ? `<div class="body-sm" style="color:var(--muted);">"${escapeHtml(a.requestNote)}"</div>` : ""}
+            ${conflictHTML}
           </div>
           <span class="badge-pill" style="background:var(--brand-ochre); color:var(--ink); flex-shrink:0;">รออนุมัติ</span>
         </div>

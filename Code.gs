@@ -263,12 +263,31 @@ function doPost(e) {
       if (conflict) {
         return jsonOutput_({ ok: false, error: `ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจ "${conflict.title}" ในตำแหน่ง ${conflict.execName} เวลา ${conflict.start}–${conflict.end}) กรุณาเลือกเวลาอื่น` });
       }
+      // Not blocked, but flag if another PENDING request already wants this same slot —
+      // both will show up for the executive to choose between.
+      const group = personGroupNames_(executives, payload.execName);
+      const toMin = (t) => { const p = String(t).split(':').map(Number); return p[0] * 60 + (p[1] || 0); };
+      const s = toMin(payload.start), en = toMin(payload.end);
+      const pendingClash = appointments.find(a =>
+        a.status === 'pending' &&
+        group.has(a.execName.toLowerCase()) &&
+        a.date === payload.date &&
+        toMin(a.start) < en && toMin(a.end) > s
+      );
+
       const newId = Utilities.getUuid();
       apptSheet.appendRow([
         newId, payload.execName, payload.date, payload.start, payload.end,
         payload.title || 'ขอเข้าพบ', payload.location || '', payload.notes || '',
         'pending', payload.requestedBy || '', payload.requestedContact || '', payload.requestNote || '',
       ]);
+
+      const data = loadData_();
+      const response = Object.assign({ ok: true }, data);
+      if (pendingClash) {
+        response.warning = `บันทึกคำขอของท่านแล้ว แต่มีอีกคำขอหนึ่งขอเวลาเดียวกันไว้ก่อนแล้วเช่นกัน (${pendingClash.start}–${pendingClash.end}) ผู้บริหารจะเป็นผู้พิจารณาว่าจะยืนยันคำขอใด`;
+      }
+      return jsonOutput_(response);
 
     } else if (action === 'approveAppointment') {
       const { rows } = readSheetObjects_(apptSheet);

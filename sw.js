@@ -1,5 +1,5 @@
 /* ExecCal service worker — app-shell caching for offline use */
-const CACHE_NAME = "execcal-cache-v1";
+const CACHE_NAME = "execcal-cache-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const APP_SHELL = [
   "./style.css",
   "./app.js",
   "./booking.js",
+  "./landing.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>ExecCal — ตารางนัดหมายผู้บริหาร</title>
-<meta name="description" content="ระบบตารางนัดหมายผู้บริหาร — เลือกใช้งานในฐานะผู้บริหารหรือผู้ขอนัดหมาย">
+<meta name="description" content="ระบบตารางนัดหมายผู้บริหาร — ดูตารางนัดหมาย จัดการนัดหมาย หรือขอเข้าพบผู้บริหาร">
 <meta name="theme-color" content="#fffaf0">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -18,62 +18,92 @@
 <link rel="stylesheet" href="style.css">
 <style>
   body{ font-family:"Anuphan",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-  .landing-wrap{
-    min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:var(--lg) var(--md) var(--xxl); text-align:center; max-width:640px; margin:0 auto;
+
+  .landing-header{
+    padding:var(--md); display:flex; align-items:center; gap:10px;
+    border-bottom:1px solid var(--hairline-soft);
   }
-  .landing-logo{
-    width:64px; height:64px; border-radius:var(--r-lg); background:var(--primary); color:var(--on-primary);
-    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:24px; margin-bottom:var(--lg);
+  .landing-header .landing-logo{
+    width:36px; height:36px; border-radius:var(--r-sm); background:var(--primary); color:var(--on-primary);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex-shrink:0;
   }
-  .role-grid{ display:flex; flex-direction:column; gap:var(--md); width:100%; margin-top:var(--xl); }
-  @media(min-width:640px){ .role-grid{ flex-direction:row; } }
+
+  .landing-shell{
+    max-width:1200px; margin:0 auto; padding:var(--md);
+    display:flex; flex-direction:column; gap:var(--lg);
+  }
+  @media(min-width:900px){
+    .landing-shell{ flex-direction:row; align-items:flex-start; padding:var(--lg); }
+    .landing-calendar{ flex:1.7; min-width:0; }
+    .landing-menu{ flex:1; max-width:340px; position:sticky; top:var(--lg); }
+  }
+
+  .landing-calendar-card{ background:var(--surface-soft); border-radius:var(--r-xl); padding:var(--md); }
+  .landing-calendar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--md); flex-wrap:wrap; gap:8px; }
+
+  .landing-menu{ display:flex; flex-direction:column; gap:var(--md); }
   .role-card{
-    flex:1; display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+    display:flex; flex-direction:column; align-items:flex-start; gap:8px;
     text-decoration:none; text-align:left; cursor:pointer;
   }
-  .role-card .role-icon{ font-size:34px; }
-  .role-card .role-cta{ margin-top:auto; padding-top:14px; }
+  .role-card .role-icon{ font-size:28px; }
+  .role-card .role-cta{ margin-top:6px; }
+
+  .landing-empty{ text-align:center; padding:var(--xxl) var(--md); color:var(--muted); }
+
+  /* Give the landing preview its own list class — .week-day-list is hidden by
+     style.css on >=860px screens for the admin app's desktop grid view, which
+     would otherwise make this calendar preview disappear on desktop here. */
+  .landing-week-list{ display:flex; flex-direction:column; gap:var(--md); }
 </style>
 </head>
 <body>
 
-<div class="landing-wrap">
+<header class="landing-header">
   <div class="landing-logo">EC</div>
-  <h1 class="display-sm">ExecCal</h1>
-  <p class="body-md" style="color:var(--body); margin-top:8px;">ระบบตารางนัดหมายผู้บริหาร — เลือกวิธีใช้งานของคุณ</p>
+  <div>
+    <div class="title-sm" style="line-height:1.2;">ExecCal</div>
+    <div class="caption" style="color:var(--muted);">ระบบตารางนัดหมายผู้บริหาร</div>
+  </div>
+</header>
 
-  <div class="role-grid">
+<div class="landing-shell">
+
+  <div class="landing-calendar">
+    <div class="landing-calendar-card">
+      <div class="landing-calendar-header">
+        <div>
+          <div class="title-md">ตารางนัดหมายสัปดาห์นี้</div>
+          <div class="body-sm" id="landingWeekLabel" style="color:var(--muted);">—</div>
+        </div>
+      </div>
+      <div id="landingLoading" class="body-sm" style="color:var(--muted); padding:var(--lg) 0; text-align:center;">กำลังโหลดตารางนัดหมาย...</div>
+      <div id="landingWeekList" class="landing-week-list" style="display:none;"></div>
+      <div id="landingEmpty" class="landing-empty" style="display:none;">
+        <div class="em-icon" style="font-size:36px; margin-bottom:8px;">🗓️</div>
+        <p class="body-sm">ยังไม่มีข้อมูลตารางนัดหมายให้แสดงในขณะนี้</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="landing-menu">
     <a href="admin.html" class="role-card feature-card-teal">
       <span class="role-icon">👔</span>
-      <div class="title-md">สำหรับผู้บริหาร</div>
+      <div class="title-md">จัดการนัดหมาย</div>
       <p class="body-sm" style="opacity:.9;">จัดการตารางนัดหมาย อนุมัติคำขอ ดูภาพรวมทุกตำแหน่ง และดาวน์โหลดตารางปฏิบัติงาน</p>
-      <span class="btn btn-on-color role-cta">เข้าสู่ระบบผู้บริหาร →</span>
+      <span class="btn btn-on-color role-cta">เข้าสู่เมนูจัดการนัดหมาย →</span>
     </a>
 
     <a href="booking.html" id="bookingLink" class="role-card feature-card-pink">
       <span class="role-icon">📅</span>
-      <div class="title-md">สำหรับผู้ขอนัดหมาย</div>
+      <div class="title-md">เมนูนัดหมาย</div>
       <p class="body-sm" style="opacity:.9;">ขอเข้าพบผู้บริหารตามวันเวลาที่สะดวก ระบบจะแจ้งเตือนหากเวลาที่เลือกไม่ว่าง และส่งคำขอให้ผู้บริหารพิจารณา</p>
       <span class="btn btn-on-color role-cta">ขอเข้าพบผู้บริหาร →</span>
     </a>
   </div>
 
-  <p class="caption" style="color:var(--muted-soft); margin-top:var(--xxl);">ExecCal · ระบบตารางนัดหมายผู้บริหาร</p>
 </div>
 
-<script>
-  // If this device already has the Google Sheet link configured (e.g. the admin's
-  // own device), carry it over automatically so the booking card works out of the box too.
-  (function () {
-    try {
-      var gas = localStorage.getItem("execcal_gas_url");
-      if (gas) {
-        var link = document.getElementById("bookingLink");
-        link.href = "booking.html?gas=" + encodeURIComponent(gas);
-      }
-    } catch (e) { /* localStorage unavailable — booking link still works via a shared link */ }
-  })();
-</script>
+<script src="landing.js"></script>
 </body>
 </html>

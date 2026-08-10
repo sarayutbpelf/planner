@@ -180,6 +180,13 @@
         return;
       }
       appointments = data.appointments || appointments;
+      const warnEl = $("#successWarning");
+      if (data.warning) {
+        warnEl.textContent = "⚠️ " + data.warning;
+        warnEl.style.display = "block";
+      } else {
+        warnEl.style.display = "none";
+      }
       showState("successState");
     } catch (err) {
       console.error(err);
