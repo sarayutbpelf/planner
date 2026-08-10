@@ -29,6 +29,15 @@
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
+  function personKeyOf(execName) {
+    const ex = executives.find(e => e.name.toLowerCase() === String(execName).trim().toLowerCase());
+    return (ex && ex.person && ex.person.trim()) ? ex.person.trim().toLowerCase() : String(execName).trim().toLowerCase();
+  }
+  // All position names (execName values) that belong to the same real person as `execName`.
+  function personGroupNames(execName) {
+    const key = personKeyOf(execName);
+    return new Set(executives.filter(e => personKeyOf(e.name) === key).map(e => e.name.toLowerCase()));
+  }
 
   function showState(id) {
     ["noLinkState", "loadingState", "formState", "successState"].forEach(s => {
@@ -68,8 +77,9 @@
   function apptsForSelectedDate() {
     const date = $("#bkDate").value;
     if (!date || !selectedExecName) return [];
+    const group = personGroupNames(selectedExecName);
     return appointments
-      .filter(a => a.date === date && String(a.execName || "").trim().toLowerCase() === selectedExecName.trim().toLowerCase())
+      .filter(a => a.date === date && group.has(String(a.execName || "").trim().toLowerCase()))
       .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
   }
 
@@ -82,10 +92,12 @@
       listEl.innerHTML = "";
     } else {
       wrap.style.display = "block";
+      const multiPosition = new Set(list.map(a => a.execName.toLowerCase())).size > 1;
       listEl.innerHTML = list.map(a => {
         const pending = String(a.status || "").toLowerCase() === "pending";
+        const samePosition = a.execName.trim().toLowerCase() === selectedExecName.trim().toLowerCase();
         return `<div class="avail-item ${pending ? "pending" : ""}">
-          <span>${a.start}–${a.end}</span>
+          <span>${a.start}–${a.end}${multiPosition && !samePosition ? ` (${escapeHtml(a.execName)})` : ""}</span>
           <span>${pending ? "รอการอนุมัติ" : "มีนัดแล้ว"}</span>
         </div>`;
       }).join("");
@@ -115,8 +127,11 @@
       toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
     );
     if (confirmedConflict) {
+      const samePosition = confirmedConflict.execName.trim().toLowerCase() === selectedExecName.trim().toLowerCase();
       banner.classList.add("error");
-      banner.textContent = `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (มีนัดหมาย ${confirmedConflict.start}–${confirmedConflict.end}) กรุณาเลือกเวลาอื่น`;
+      banner.textContent = samePosition
+        ? `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (มีนัดหมาย ${confirmedConflict.start}–${confirmedConflict.end}) กรุณาเลือกเวลาอื่น`
+        : `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจในตำแหน่ง "${escapeHtml(confirmedConflict.execName)}" เวลา ${confirmedConflict.start}–${confirmedConflict.end}) กรุณาเลือกเวลาอื่น`;
       submitBtn.disabled = true;
       return;
     }

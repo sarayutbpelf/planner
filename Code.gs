@@ -21,6 +21,7 @@ const EXEC_SHEET_NAME = 'Executives';
 const APPT_SHEET_NAME = 'Appointments';
 const HOLIDAY_SHEET_NAME = 'Holidays';
 const COLOR_ORDER = ['pink', 'teal', 'lavender', 'peach', 'ochre', 'cream'];
+const EXEC_HEADERS = ['ID', 'Name', 'Color', 'PersonName'];
 const APPT_HEADERS = ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes', 'Status', 'RequestedBy', 'RequestedContact', 'RequestNote'];
 const HOLIDAY_HEADERS = ['Date', 'Label'];
 
@@ -74,7 +75,7 @@ function formatTimeCell_(v) {
 }
 
 function loadData_() {
-  const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, ['ID', 'Name', 'Color']);
+  const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, EXEC_HEADERS);
   const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
   const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
 
@@ -85,7 +86,12 @@ function loadData_() {
   ensureIds_(apptSheet, apptData.rows);
 
   let executives = execData.rows
-    .map(r => ({ id: String(r.ID), name: String(r.Name || '').trim(), color: String(r.Color || '').trim().toLowerCase() }))
+    .map(r => ({
+      id: String(r.ID),
+      name: String(r.Name || '').trim(),
+      color: String(r.Color || '').trim().toLowerCase(),
+      person: String(r.PersonName || '').trim(), // real human name; blank = same as `name` (no grouping)
+    }))
     .filter(e => e.name);
 
   // Auto-create executives that were typed directly into the Appointments
@@ -97,13 +103,13 @@ function loadData_() {
     if (nm && !nameSet.has(nm.toLowerCase())) {
       const color = COLOR_ORDER[executives.length % COLOR_ORDER.length];
       const id = Utilities.getUuid();
-      executives.push({ id, name: nm, color });
+      executives.push({ id, name: nm, color, person: '' });
       nameSet.add(nm.toLowerCase());
-      newExecRows.push([id, nm, color]);
+      newExecRows.push([id, nm, color, '']);
     }
   });
   if (newExecRows.length) {
-    execSheet.getRange(execSheet.getLastRow() + 1, 1, newExecRows.length, 3).setValues(newExecRows);
+    execSheet.getRange(execSheet.getLastRow() + 1, 1, newExecRows.length, 4).setValues(newExecRows);
   }
   // Fill in any blank color cells so the app always has a color to render.
   executives.forEach((e, i) => {
@@ -135,17 +141,38 @@ function loadData_() {
   return { executives, appointments, holidays };
 }
 
-// Does this exec already have a CONFIRMED appointment overlapping [start,end) on `date`?
-function hasConfirmedConflict_(appointments, execName, date, start, end, excludeId) {
+// The "person key" for an executive/position: their real human name if set,
+// otherwise the position name itself (so positions default to standing alone).
+function personKeyFor_(executives, execName) {
+  const target = executives.find(e => e.name.toLowerCase() === String(execName).trim().toLowerCase());
+  const person = (target && target.person) ? target.person.trim().toLowerCase() : String(execName).trim().toLowerCase();
+  return person;
+}
+
+// All position/executive names that belong to the same real person as `execName`
+// (i.e. share the same PersonName — or just `execName` itself if ungrouped).
+function personGroupNames_(executives, execName) {
+  const key = personKeyFor_(executives, execName);
+  return new Set(
+    executives
+      .filter(e => (e.person ? e.person.trim().toLowerCase() : e.name.trim().toLowerCase()) === key)
+      .map(e => e.name.toLowerCase())
+  );
+}
+
+// Does this PERSON (across all of their positions) already have a CONFIRMED
+// appointment overlapping [start,end) on `date`, under any position other than excludeId?
+function hasConfirmedConflict_(appointments, executives, execName, date, start, end, excludeId) {
   const toMin = (t) => { const p = String(t).split(':').map(Number); return p[0] * 60 + (p[1] || 0); };
   const s = toMin(start), en = toMin(end);
-  return appointments.some(a =>
+  const group = personGroupNames_(executives, execName);
+  return appointments.find(a =>
     a.id !== excludeId &&
     a.status === 'confirmed' &&
-    a.execName.toLowerCase() === String(execName).trim().toLowerCase() &&
+    group.has(a.execName.toLowerCase()) &&
     a.date === date &&
     toMin(a.start) < en && toMin(a.end) > s
-  );
+  ) || null;
 }
 
 function upsertRow_(sh, id, rowValues) {
@@ -201,12 +228,12 @@ function doPost(e) {
     const action = body.action;
     const payload = body.payload || {};
 
-    const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, ['ID', 'Name', 'Color']);
+    const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, EXEC_HEADERS);
     const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
     const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
 
     if (action === 'upsertExecutive') {
-      upsertRow_(execSheet, payload.id, [payload.id, payload.name, payload.color]);
+      upsertRow_(execSheet, payload.id, [payload.id, payload.name, payload.color, payload.person || '']);
 
     } else if (action === 'deleteExecutive') {
       deleteRow_(execSheet, payload.id);
@@ -229,10 +256,12 @@ function doPost(e) {
 
     } else if (action === 'requestAppointment') {
       // Used by the public booking page — creates a PENDING request.
-      // Reject outright if it overlaps an already-CONFIRMED slot for that executive.
-      const { appointments } = loadData_();
-      if (hasConfirmedConflict_(appointments, payload.execName, payload.date, payload.start, payload.end, null)) {
-        return jsonOutput_({ ok: false, error: 'ช่วงเวลานี้ไม่ว่างแล้ว กรุณาเลือกเวลาอื่น' });
+      // Reject outright if this PERSON (across any of their positions) already
+      // has a CONFIRMED slot overlapping this time.
+      const { appointments, executives } = loadData_();
+      const conflict = hasConfirmedConflict_(appointments, executives, payload.execName, payload.date, payload.start, payload.end, null);
+      if (conflict) {
+        return jsonOutput_({ ok: false, error: `ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจ "${conflict.title}" ในตำแหน่ง ${conflict.execName} เวลา ${conflict.start}–${conflict.end}) กรุณาเลือกเวลาอื่น` });
       }
       const newId = Utilities.getUuid();
       apptSheet.appendRow([
@@ -245,10 +274,11 @@ function doPost(e) {
       const { rows } = readSheetObjects_(apptSheet);
       const row = rows.find(r => String(r.ID) === String(payload.id));
       if (row) {
-        // Re-check conflicts at approval time, in case another slot was confirmed in the meantime.
-        const { appointments } = loadData_();
-        if (hasConfirmedConflict_(appointments, row.ExecutiveName, formatDateCell_(row.Date), formatTimeCell_(row.Start), formatTimeCell_(row.End), String(row.ID))) {
-          return jsonOutput_({ ok: false, error: 'ไม่สามารถอนุมัติได้ เวลานี้ถูกยืนยันให้นัดหมายอื่นไปแล้ว' });
+        // Re-check conflicts (across all positions of the same person) at approval time.
+        const { appointments, executives } = loadData_();
+        const conflict = hasConfirmedConflict_(appointments, executives, row.ExecutiveName, formatDateCell_(row.Date), formatTimeCell_(row.Start), formatTimeCell_(row.End), String(row.ID));
+        if (conflict) {
+          return jsonOutput_({ ok: false, error: `ไม่สามารถอนุมัติได้ ช่วงเวลานี้ถูกยืนยันให้ "${conflict.title}" (ตำแหน่ง ${conflict.execName}) ไปแล้ว` });
         }
         apptSheet.getRange(row.__row, APPT_HEADERS.indexOf('Status') + 1).setValue('confirmed');
       }

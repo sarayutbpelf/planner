@@ -154,7 +154,7 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="execSheetTitle">
     <span class="sheet-handle"></span>
     <div class="sheet-header">
-      <h2 class="title-lg" id="execSheetTitle">จัดการผู้บริหาร</h2>
+      <h2 class="title-lg" id="execSheetTitle">จัดการผู้บริหาร/ตำแหน่ง</h2>
       <button class="sheet-close" data-close="execOverlay" aria-label="ปิด">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -163,8 +163,13 @@
     <form id="execForm" style="margin-top:var(--md); border-top:1px solid var(--hairline-soft); padding-top:var(--md);">
       <input type="hidden" id="execId">
       <div class="field">
-        <label for="execName">ชื่อผู้บริหาร</label>
-        <input class="text-input" id="execName" placeholder="เช่น คุณสมชาย ใจดี" required>
+        <label for="execName">ชื่อ/ตำแหน่ง</label>
+        <input class="text-input" id="execName" placeholder="เช่น ผู้อำนวยการโรงพยาบาลหันคา" required>
+      </div>
+      <div class="field">
+        <label for="execPerson">ชื่อบุคคลจริง (กรอกเฉพาะถ้าดำรงหลายตำแหน่ง)</label>
+        <input class="text-input" id="execPerson" placeholder="เช่น นายสมชาย ใจดี — เว้นว่างได้หากตำแหน่งนี้เป็นคนละคน">
+        <p class="caption" style="color:var(--muted); margin-top:6px;">ใส่ชื่อคนจริงเพื่อให้ระบบเช็คเวลาซ้อนทับข้ามตำแหน่งของบุคคลเดียวกันโดยอัตโนมัติ</p>
       </div>
       <div class="field">
         <label>สีประจำตัว</label>
@@ -202,6 +207,7 @@
     </div>
     <div style="display:flex; flex-direction:column; gap:8px;">
       <button class="btn btn-secondary btn-block" id="btnOpenExec" style="justify-content:flex-start;">👤 จัดการผู้บริหาร</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenSummary" style="justify-content:flex-start;">📍 สรุปตารางวันนี้ (ใครอยู่ไหนช่วงไหน)</button>
       <button class="btn btn-secondary btn-block" id="btnOpenPending" style="justify-content:flex-start;">
         🔔 คำขอนัดหมายที่รออนุมัติ<span id="pendingMenuCount" class="badge-pill" style="margin-left:6px; display:none;"></span>
       </button>
@@ -221,6 +227,24 @@
       <button class="btn btn-secondary btn-block" id="btnInstallApp" style="justify-content:flex-start; display:none;">⬇️ ติดตั้งแอปลงหน้าจอหลัก</button>
       <button class="btn btn-danger btn-block" id="btnClearAll" style="justify-content:flex-start;">🗑️ ล้างข้อมูลทั้งหมด</button>
     </div>
+  </div>
+</div>
+
+<!-- ============ Daily summary sheet (per-person cross-position timeline) ============ -->
+<div class="overlay" id="summaryOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="summarySheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="summarySheetTitle">สรุปตารางวันนี้</h2>
+      <button class="sheet-close" data-close="summaryOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="field">
+      <label for="summaryDate">วันที่</label>
+      <input class="text-input" type="date" id="summaryDate">
+    </div>
+    <div id="summaryList" style="display:flex; flex-direction:column; gap:14px; margin-top:var(--sm);"></div>
   </div>
 </div>
 

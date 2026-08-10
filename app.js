@@ -70,6 +70,30 @@
     return COLOR_ORDER[state.executives.length % COLOR_ORDER.length];
   }
   function execById(id) { return state.executives.find(e => e.id === id); }
+  function personKeyOf(ex) { return (ex && ex.personName && ex.personName.trim()) ? ex.personName.trim().toLowerCase() : (ex ? ex.name.trim().toLowerCase() : ""); }
+  function personGroupExecIds(execId) {
+    const ex = execById(execId);
+    if (!ex) return new Set([execId]);
+    const key = personKeyOf(ex);
+    return new Set(state.executives.filter(e => personKeyOf(e) === key).map(e => e.id));
+  }
+  function personDisplayName(execId) {
+    const ex = execById(execId);
+    if (!ex) return "—";
+    return (ex.personName && ex.personName.trim()) ? ex.personName.trim() : ex.name;
+  }
+  // Find a CONFIRMED appointment under a DIFFERENT position but the SAME real person
+  // that overlaps [start,end) on `date`. Returns null if none.
+  function findCrossPositionConflict(execId, date, start, end, excludeApptId) {
+    const group = personGroupExecIds(execId);
+    return state.appointments.find(a =>
+      a.id !== excludeApptId &&
+      a.status === "confirmed" &&
+      group.has(a.execId) &&
+      a.date === date &&
+      toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
+    ) || null;
+  }
   function apptsForDate(dateISO) {
     return state.appointments
       .filter(a => a.date === dateISO && isExecVisible(a.execId))
@@ -111,6 +135,7 @@
     const executives = data.executives.map((e, i) => ({
       id: String(e.id),
       name: String(e.name || "").trim(),
+      personName: String(e.person || e.personName || "").trim(),
       colorKey: normalizeColor(e.color) || COLOR_ORDER[i % COLOR_ORDER.length],
     })).filter(e => e.name);
 
@@ -293,8 +318,10 @@
     const ex = execById(a.execId);
     const cls = colorClass(ex ? ex.colorKey : "cream");
     const pending = a.status === "pending";
+    const crossConflict = a.status === "confirmed" ? findCrossPositionConflict(a.execId, a.date, a.start, a.end, a.id) : null;
     return `<div class="appt-card ${cls} ${pending ? "pending" : ""}" data-appt-id="${a.id}">
         ${pending ? `<span class="appt-pending-badge">รออนุมัติ</span>` : ""}
+        ${crossConflict ? `<span class="appt-pending-badge" style="background:var(--error); color:#fff;" title="ซ้อนกับตำแหน่งอื่นของคนเดียวกัน">⚠️ ซ้อนตำแหน่ง</span>` : ""}
         <span class="appt-time">${a.start}–${a.end}</span>
         <span class="appt-title">${escapeHtml(a.title)}</span>
         <span class="appt-meta">
@@ -573,12 +600,14 @@
     const curId = $("#apptId").value;
     const warnEl = $("#apptConflictWarning");
     if (!execId || !date || !start || !end) { warnEl.style.display = "none"; return; }
-    const conflict = state.appointments.find(a =>
-      a.id !== curId && a.execId === execId && a.date === date && a.status === "confirmed" &&
-      toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
-    );
+    const conflict = findCrossPositionConflict(execId, date, start, end, curId);
     if (conflict) {
-      warnEl.textContent = `⚠️ เวลาซ้อนทับกับ "${conflict.title}" (${conflict.start}–${conflict.end})`;
+      const conflictExec = execById(conflict.execId);
+      const samePosition = conflictExec && conflictExec.id === execId;
+      const who = personDisplayName(execId);
+      warnEl.textContent = samePosition
+        ? `⚠️ เวลาซ้อนทับกับ "${conflict.title}" (${conflict.start}–${conflict.end})`
+        : `⚠️ ${who} ติดภารกิจ "${conflict.title}" ในตำแหน่ง "${conflictExec ? conflictExec.name : "—"}" ช่วง ${conflict.start}–${conflict.end} อยู่แล้ว`;
       warnEl.style.display = "block";
     } else {
       warnEl.style.display = "none";
@@ -627,11 +656,16 @@
       listEl.innerHTML = `<p class="body-sm">ยังไม่มีผู้บริหารในระบบ เพิ่มรายชื่อด้านล่าง</p>`;
       return;
     }
+    // Group positions sharing the same real person, purely for a helpful subtitle.
     listEl.innerHTML = state.executives.map(ex => {
       const count = state.appointments.filter(a => a.execId === ex.id).length;
-      return `<div class="exec-row" data-id="${ex.id}">
-        <span class="dot" style="background:${ex.colorKey === "cream" ? "var(--surface-strong)" : `var(--brand-${ex.colorKey})`}"></span>
-        <span class="exec-name">${escapeHtml(ex.name)}</span>
+      const groupSize = personGroupExecIds(ex.id).size;
+      return `<div class="exec-row" data-id="${ex.id}" style="align-items:flex-start;">
+        <span class="dot" style="background:${ex.colorKey === "cream" ? "var(--surface-strong)" : `var(--brand-${ex.colorKey})`}; margin-top:4px;"></span>
+        <span class="exec-name">
+          ${escapeHtml(ex.name)}
+          ${ex.personName ? `<br><span class="caption" style="color:var(--muted); font-weight:400;">👤 ${escapeHtml(ex.personName)}${groupSize > 1 ? ` · รวม ${groupSize} ตำแหน่ง` : ""}</span>` : ""}
+        </span>
         <span class="badge-pill">${count} นัดหมาย</span>
         <button data-action="edit" aria-label="แก้ไข">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -647,6 +681,7 @@
         const ex = execById(id);
         $("#execId").value = ex.id;
         $("#execName").value = ex.name;
+        $("#execPerson").value = ex.personName || "";
         pickedColor = ex.colorKey;
         renderColorPicker(ex.colorKey);
         $("#btnExecSubmit").textContent = "บันทึกการแก้ไข";
@@ -685,16 +720,18 @@
     e.preventDefault();
     const id = $("#execId").value;
     const name = $("#execName").value.trim();
+    const personName = $("#execPerson").value.trim();
     if (!name) return;
     const color = pickedColor || nextColor();
     const finalId = id || uid();
     if (id) {
       const ex = execById(id);
       ex.name = name;
+      ex.personName = personName;
       ex.colorKey = color;
       toast("แก้ไขข้อมูลผู้บริหารแล้ว");
     } else {
-      state.executives.push({ id: finalId, name, colorKey: color });
+      state.executives.push({ id: finalId, name, personName, colorKey: color });
       toast("เพิ่มผู้บริหารแล้ว");
     }
     saveState();
@@ -705,7 +742,7 @@
     $("#btnExecSubmit").textContent = "+ เพิ่มผู้บริหาร";
     renderExecList();
     renderAll();
-    pushToSheet("upsertExecutive", { id: finalId, name, color });
+    pushToSheet("upsertExecutive", { id: finalId, name, color, person: personName });
   });
 
   $("#btnOpenExec").addEventListener("click", () => { closeSheet("menuOverlay"); openExecSheet(); });
@@ -845,6 +882,79 @@
     updateSyncStatus();
     toast("ยกเลิกการเชื่อมต่อแล้ว");
   });
+
+  /* ============================================================
+     Daily summary — "who must be where, and when, today"
+     Groups appointments by real PERSON (across all their positions).
+     ============================================================ */
+  function renderDailySummary(dateISO) {
+    const listEl = $("#summaryList");
+    const d = parseISO(dateISO);
+    const holiday = holidayFor(dateISO);
+
+    // Group executives by person key.
+    const groups = new Map(); // personKey -> { personLabel, execIds:Set, positions:[{id,name}] }
+    state.executives.forEach(ex => {
+      const key = personKeyOf(ex);
+      if (!groups.has(key)) groups.set(key, { personLabel: personDisplayName(ex.id), execIds: new Set(), positions: [] });
+      const g = groups.get(key);
+      g.execIds.add(ex.id);
+      g.positions.push({ id: ex.id, name: ex.name });
+    });
+
+    const cards = [];
+    groups.forEach((g) => {
+      const multiPosition = g.positions.length > 1;
+      const items = state.appointments
+        .filter(a => g.execIds.has(a.execId) && a.date === dateISO && a.status === "confirmed")
+        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+      if (items.length === 0 && !multiPosition) return; // nothing to show for a lone position with no appts today
+
+      let bodyHTML;
+      if (holiday) {
+        bodyHTML = `<div class="day-empty">🎌 ${escapeHtml(holiday.label)}</div>`;
+      } else if (items.length === 0) {
+        bodyHTML = `<div class="day-empty">ไม่มีนัดหมายวันนี้</div>`;
+      } else {
+        bodyHTML = items.map((a, i) => {
+          const ex = execById(a.execId);
+          const overlapsNext = i < items.length - 1 && toMinutes(items[i + 1].start) < toMinutes(a.end);
+          const overlapsPrev = i > 0 && toMinutes(a.start) < toMinutes(items[i - 1].end);
+          const clash = overlapsNext || overlapsPrev;
+          return `<div style="display:flex; gap:10px; padding:10px 0; ${i > 0 ? "border-top:1px solid var(--hairline-soft);" : ""}">
+            <div style="min-width:92px; font-weight:700; font-size:14px; color:var(--ink);">${a.start}–${a.end}</div>
+            <div style="flex:1;">
+              <div class="title-sm">${escapeHtml(a.title)} ${clash ? `<span class="badge-pill" style="background:var(--error); color:#fff;">⚠️ เวลาซ้อนทับ</span>` : ""}</div>
+              <div class="body-sm" style="color:var(--muted);">
+                ${multiPosition ? `👔 ${escapeHtml(ex ? ex.name : "—")}` : ""}
+                ${a.location ? `${multiPosition ? " · " : ""}📍 ${escapeHtml(a.location)}` : ""}
+              </div>
+            </div>
+          </div>`;
+        }).join("");
+      }
+
+      cards.push(`<div class="testimonial-card">
+        <div class="title-md" style="margin-bottom:4px;">${escapeHtml(g.personLabel)}</div>
+        ${multiPosition ? `<div class="caption" style="color:var(--muted); margin-bottom:8px;">ดำรงตำแหน่ง: ${g.positions.map(p => escapeHtml(p.name)).join(", ")}</div>` : ""}
+        ${bodyHTML}
+      </div>`);
+    });
+
+    if (cards.length === 0) {
+      listEl.innerHTML = `<div class="empty-state" style="padding:var(--lg) 0;"><div class="em-icon">🗓️</div><p class="body-sm">ไม่มีนัดหมายในวันที่เลือก</p></div>`;
+    } else {
+      listEl.innerHTML = cards.join("");
+    }
+  }
+
+  $("#btnOpenSummary").addEventListener("click", () => {
+    closeSheet("menuOverlay");
+    $("#summaryDate").value = fmtISO(new Date());
+    renderDailySummary($("#summaryDate").value);
+    openSheet("summaryOverlay");
+  });
+  $("#summaryDate").addEventListener("change", () => renderDailySummary($("#summaryDate").value));
 
   /* ============================================================
      Pending approvals sheet
@@ -1147,8 +1257,8 @@
   function seedIfEmpty() {
     if (state.executives.length > 0) return;
     const today = new Date();
-    const e1 = { id: uid(), name: "ประธานเจ้าหน้าที่บริหาร (CEO)", colorKey: "pink" };
-    const e2 = { id: uid(), name: "ผู้อำนวยการฝ่ายปฏิบัติการ (COO)", colorKey: "teal" };
+    const e1 = { id: uid(), name: "ประธานเจ้าหน้าที่บริหาร (CEO)", personName: "", colorKey: "pink" };
+    const e2 = { id: uid(), name: "ผู้อำนวยการฝ่ายปฏิบัติการ (COO)", personName: "", colorKey: "teal" };
     state.executives.push(e1, e2);
     state.appointments.push(
       { id: uid(), execId: e1.id, title: "ประชุมคณะกรรมการบริหาร", date: fmtISO(today), start: "09:00", end: "10:30", location: "ห้องประชุมใหญ่ ชั้น 12", notes: "", status: "confirmed", requestedBy: "", requestedContact: "", requestNote: "" },
