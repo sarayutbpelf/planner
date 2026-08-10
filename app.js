@@ -27,10 +27,11 @@
       if (raw) {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed.holidays)) parsed.holidays = [];
+        if (!Array.isArray(parsed.adminEmails)) parsed.adminEmails = [];
         return parsed;
       }
     } catch (e) { console.warn("Failed to load state", e); }
-    return { executives: [], appointments: [], holidays: [] };
+    return { executives: [], appointments: [], holidays: [], adminEmails: [] };
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -159,11 +160,35 @@
       ? data.holidays.map(h => ({ date: String(h.date || "").trim(), label: String(h.label || "วันหยุดราชการ").trim() })).filter(h => h.date)
       : [];
 
-    state = { executives, appointments, holidays };
+    const adminEmails = Array.isArray(data.adminEmails)
+      ? data.adminEmails.map(e => String(e).trim().toLowerCase()).filter(Boolean)
+      : (state.adminEmails || []);
+
+    state = { executives, appointments, holidays, adminEmails };
     if (activeFilters) activeFilters = null;
     saveState();
     setLastSync();
+    checkForNewPendingRequests();
     return true;
+  }
+
+  /* ---------- pending-approval notification ---------- */
+  let lastKnownPendingCount = null; // null = not yet established a baseline
+  function checkForNewPendingRequests() {
+    const n = pendingCount();
+    if (lastKnownPendingCount !== null && n > lastKnownPendingCount) {
+      const added = n - lastKnownPendingCount;
+      toast(`🔔 มีคำขอนัดหมายใหม่รออนุมัติ ${added} รายการ`);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          new Notification("ExecCal — มีคำขอนัดหมายใหม่", {
+            body: `มีคำขอนัดหมายรออนุมัติเพิ่มขึ้น ${added} รายการ (รวม ${n} รายการ)`,
+            icon: "icons/icon-192.png",
+          });
+        } catch (e) { /* Notification constructor can fail on some mobile browsers; toast already shown */ }
+      }
+    }
+    lastKnownPendingCount = n;
   }
 
   async function pullFromSheet(opts) {
@@ -1087,6 +1112,68 @@
   });
 
   /* ============================================================
+     Admin emails (allow-list for the Google Sign-In gate)
+     ============================================================ */
+  function renderAdminEmailsList() {
+    const listEl = $("#adminEmailsList");
+    const emails = (state.adminEmails || []).slice().sort();
+    if (emails.length === 0) {
+      listEl.innerHTML = `<p class="body-sm" style="color:var(--muted);">ยังไม่มีอีเมลในรายการ — บัญชี Google แรกที่เข้าสู่ระบบจะกลายเป็นผู้ดูแลอัตโนมัติ</p>`;
+      return;
+    }
+    listEl.innerHTML = emails.map(email => `<div class="exec-row" data-email="${escapeHtml(email)}">
+      <span class="exec-name">${escapeHtml(email)}</span>
+      <button data-action="delete-admin-email" aria-label="ลบ">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`).join("");
+    listEl.querySelectorAll("[data-action='delete-admin-email']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const email = btn.closest("[data-email]").dataset.email;
+        if (state.adminEmails.length <= 1) { toast("ต้องมีอีเมลผู้ดูแลอย่างน้อย 1 รายการ"); return; }
+        if (!confirm(`ลบสิทธิ์เข้าถึงของ "${email}" หรือไม่?`)) return;
+        state.adminEmails = state.adminEmails.filter(e => e !== email);
+        saveState();
+        renderAdminEmailsList();
+        toast("ลบอีเมลแล้ว");
+        pushToSheet("deleteAdminEmail", { email });
+      });
+    });
+  }
+  $("#btnOpenAdminEmails").addEventListener("click", () => {
+    closeSheet("menuOverlay");
+    renderAdminEmailsList();
+    openSheet("adminEmailsOverlay");
+  });
+  $("#adminEmailsForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = $("#adminEmailInput").value.trim().toLowerCase();
+    if (!email) return;
+    if (!state.adminEmails.includes(email)) state.adminEmails.push(email);
+    saveState();
+    $("#adminEmailsForm").reset();
+    renderAdminEmailsList();
+    toast("เพิ่มอีเมลแล้ว");
+    pushToSheet("upsertAdminEmail", { email });
+  });
+
+  /* ============================================================
+     Browser notifications (new pending requests) + sign-out
+     ============================================================ */
+  $("#btnNotifPermission").addEventListener("click", async () => {
+    if (typeof Notification === "undefined") { toast("เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน"); return; }
+    if (Notification.permission === "granted") { toast("เปิดการแจ้งเตือนอยู่แล้ว"); return; }
+    if (Notification.permission === "denied") { toast("การแจ้งเตือนถูกปิดไว้ในตั้งค่าเบราว์เซอร์ กรุณาเปิดเองในตั้งค่าเว็บไซต์"); return; }
+    const perm = await Notification.requestPermission();
+    toast(perm === "granted" ? "เปิดการแจ้งเตือนแล้ว" : "ยังไม่ได้เปิดการแจ้งเตือน");
+  });
+
+  $("#btnSignOut").addEventListener("click", () => {
+    if (!confirm("ออกจากระบบหรือไม่?")) return;
+    if (window.ExecCalAuth) window.ExecCalAuth.signOut();
+  });
+
+  /* ============================================================
      Public booking link (share to non-admins)
      ============================================================ */
   $("#btnCopyBookingLink").addEventListener("click", async () => {
@@ -1108,13 +1195,13 @@
      Official "ตารางปฏิบัติงาน" poster export (matches supplied reference design)
      ============================================================ */
   const POSTER_DOW = [
-    { key: 1, label: "จันทร์", icon: "🗓️", bg: "#eaf2fb" },
-    { key: 2, label: "อังคาร", icon: "📋", bg: "#eaf7ee" },
-    { key: 3, label: "พุธ", icon: "🏖️", bg: "#fdeaf0" },
-    { key: 4, label: "พฤหัส", icon: "🏥", bg: "#f2eafc" },
-    { key: 5, label: "ศุกร์", icon: "🤝", bg: "#fdeaf0" },
-    { key: 6, label: "เสาร์", icon: "🏠", bg: "#fdf1e2" },
-    { key: 0, label: "อาทิตย์", icon: "🌳", bg: "#fdeaf0" },
+    { key: 1, label: "วันจันทร์" },
+    { key: 2, label: "วันอังคาร" },
+    { key: 3, label: "วันพุธ" },
+    { key: 4, label: "วันพฤหัสบดี" },
+    { key: 5, label: "วันศุกร์" },
+    { key: 6, label: "วันเสาร์" },
+    { key: 0, label: "วันอาทิตย์" },
   ];
 
   function mondayOf(d) {
@@ -1148,15 +1235,33 @@
     if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
     toast("กำลังสร้างตารางปฏิบัติงาน...");
 
+    const today = startOfDay(new Date());
+    const sunday = addDays(monday, 6);
+    const rangeLabel = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
+      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+
+    // Reuse the exact same visual language as the live calendar (same CSS
+    // classes/tokens) so the exported image matches the website 1:1.
     const wrap = document.createElement("div");
     wrap.style.position = "fixed";
     wrap.style.left = "-9999px";
     wrap.style.top = "0";
-    wrap.style.width = "1400px";
-    wrap.style.background = "linear-gradient(180deg,#fdf9f0,#fffaf0)";
-    wrap.style.padding = "36px";
-    wrap.style.fontFamily = "'Inter','Noto Sans Thai',sans-serif";
+    wrap.style.width = "860px";
+    wrap.style.background = "var(--canvas)";
+    wrap.style.padding = "40px";
     wrap.style.boxSizing = "border-box";
+
+    function periodBlock(label, list, holiday) {
+      const heading = `<div class="caption-upper" style="color:var(--muted); margin-bottom:8px;">${label}</div>`;
+      if (holiday) {
+        return `<div style="flex:1; min-width:0;">${heading}<span class="badge-pill" style="background:var(--brand-ochre); color:var(--ink);">🎌 ${escapeHtml(holiday.label)}</span></div>`;
+      }
+      if (list.length === 0) {
+        return `<div style="flex:1; min-width:0;">${heading}<div class="day-empty" style="padding:0;">ไม่มีนัดหมาย</div></div>`;
+      }
+      return `<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;">${heading}${list.map(a => apptCardHTML(a)).join("")}</div>`;
+    }
 
     const rowsHTML = POSTER_DOW.map(d => {
       const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
@@ -1166,56 +1271,36 @@
       const dayAppts = state.appointments.filter(a => a.execId === execId && a.date === iso && a.status === "confirmed").sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
       const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
       const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
+      const isToday = isSameDay(date, today);
 
-      function cellContent(list) {
-        if (holiday) {
-          return `<div style="display:flex; align-items:center; gap:10px;">
-            <div style="width:34px;height:34px;border-radius:50%;background:#fff;border:2px solid #e0475a;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#e0475a;text-align:center;line-height:1;">CLOSED</div>
-            <span style="color:#c23a5e; font-weight:700; font-size:19px;">${escapeHtml(holiday.label)}</span>
-          </div>`;
-        }
-        if (list.length === 0) {
-          return `<span style="color:#9a9a9a; font-size:17px;">ไม่มีนัดหมาย</span>`;
-        }
-        return `<div style="display:flex; align-items:center; gap:10px;">
-          <div style="width:34px;height:34px;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🏢</div>
-          <span style="font-weight:700; font-size:19px; color:#12305c; line-height:1.3;">${list.map(a => escapeHtml(a.location || a.title)).join(" / ")}</span>
-        </div>`;
-      }
-
-      return `<div style="display:grid; grid-template-columns:190px 190px 1fr 1fr; gap:10px; margin-bottom:10px;">
-        <div style="background:${d.bg}; border-radius:16px; display:flex; align-items:center; gap:10px; padding:0 18px; font-weight:800; font-size:21px; color:#12305c;">
-          <span style="font-size:24px;">${d.icon}</span>${d.label}
+      return `<div class="day-card" style="margin-bottom:12px;">
+        <div class="day-card-header ${isToday ? "today" : ""}">
+          <span class="dow">${d.label}</span>
+          <span class="dom">${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}</span>
         </div>
-        <div style="background:#ffffff; border-radius:16px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:21px; color:#12305c;">
-          ${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}
+        <div class="day-card-body" style="flex-direction:row; gap:18px;">
+          ${periodBlock("เช้า", morning, holiday)}
+          ${periodBlock("บ่าย", afternoon, holiday)}
         </div>
-        <div style="background:${holiday ? "#fdeaf0" : "#eaf7ee"}; border-radius:16px; display:flex; align-items:center; padding:0 20px; min-height:70px;">${cellContent(morning)}</div>
-        <div style="background:${holiday ? "#fdeaf0" : "#eaf2fb"}; border-radius:16px; display:flex; align-items:center; padding:0 20px; min-height:70px;">${cellContent(afternoon)}</div>
       </div>`;
     }).join("");
 
     wrap.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:center; gap:24px; margin-bottom:8px;">
-        <span style="font-size:52px;">📅</span>
-        <h1 style="font-family:'Inter',sans-serif; font-weight:800; font-size:44px; color:#12305c; letter-spacing:-1px; margin:0;">ตารางปฏิบัติงาน ${escapeHtml(ex.name)}</h1>
-        <span style="font-size:52px;">🏥</span>
-      </div>
-      <div style="text-align:center; color:#d3a94a; font-size:20px; margin-bottom:20px;">◆ ─────────── ❖ ─────────── ◆</div>
-      <div style="display:grid; grid-template-columns:190px 190px 1fr 1fr; gap:10px; margin-bottom:10px;">
-        <div style="background:#12305c; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">📆 วัน</div>
-        <div style="background:#12305c; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">📆 วันที่</div>
-        <div style="background:#2f8f4e; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">☀️ เช้า</div>
-        <div style="background:#1c56a8; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">⛅ บ่าย</div>
+      <div style="text-align:center; margin-bottom:28px;">
+        <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
+          <div style="width:52px; height:52px; border-radius:var(--r-lg); background:var(--primary); color:var(--on-primary); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; flex-shrink:0;">EC</div>
+          <h1 class="display-sm" style="margin:0; font-size:32px;">ตารางปฏิบัติงาน ${escapeHtml(ex.name)}</h1>
+        </div>
+        <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
       ${rowsHTML}
-      <div style="margin-top:14px; background:#12305c; color:#fff; border-radius:9999px; padding:14px 28px; text-align:center; font-size:16px;">
-        💙 หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม
+      <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
+        <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>
     `;
     document.body.appendChild(wrap);
     try {
-      const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: "#fffaf0", useCORS: true });
+      const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
       const link = document.createElement("a");
       link.download = `ตารางปฏิบัติงาน-${ex.name}-${fmtISO(monday)}.jpg`;
       link.href = canvas.toDataURL("image/jpeg", 0.95);
@@ -1277,6 +1362,7 @@
 
   /* ---------- init ---------- */
   if (!getSheetUrl()) seedIfEmpty();
+  lastKnownPendingCount = pendingCount(); // baseline so the first sync doesn't "notify" about pre-existing requests
   renderAll();
   updateSyncStatus();
   if (getSheetUrl()) pullFromSheet({ silent: true });

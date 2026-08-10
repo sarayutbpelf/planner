@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>ExecCal — สำหรับผู้บริหาร</title>
+<meta name="description" content="ปฏิทินนัดหมายสำหรับผู้บริหาร บันทึก จัดการ และแชร์ตารางงานได้ง่าย">
+<meta name="theme-color" content="#fffaf0">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ExecCal">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  body{ font-family:"Anuphan",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  #authGate{ position:fixed; inset:0; background:var(--canvas); z-index:500; display:flex; align-items:center; justify-content:center; padding:var(--md); }
+  #authGate .auth-card{ max-width:400px; width:100%; text-align:center; }
+  #authGate .auth-logo{ width:64px; height:64px; border-radius:var(--r-lg); background:var(--primary); color:var(--canvas); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:22px; margin:0 auto var(--lg); }
+  #gsiButtonWrap{ display:flex; justify-content:center; margin-top:var(--lg); }
+  #app{ display:none; }
+</style>
+</head>
+<body>
+
+<!-- ============ Auth gate (Google Sign-In, allow-listed emails only) ============ -->
+<div id="authGate">
+  <div class="auth-card">
+    <div class="auth-logo">EC</div>
+    <div id="authStepSetup" style="display:none;">
+      <h1 class="title-lg">ตั้งค่าเริ่มต้น</h1>
+      <p class="body-sm" style="margin:var(--sm) 0 var(--lg);">เชื่อมต่อ Google Sheet ก่อน จึงจะเข้าสู่ระบบผู้บริหารได้ (ดูขั้นตอนใน README.md)</p>
+      <form id="authGasForm">
+        <div class="field" style="text-align:left;">
+          <label for="authGasInput">ลิงก์ Web App (Apps Script)</label>
+          <input class="text-input" id="authGasInput" type="url" placeholder="https://script.google.com/macros/s/xxxxx/exec" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">บันทึกและดำเนินการต่อ</button>
+      </form>
+    </div>
+    <div id="authStepSignin" style="display:none;">
+      <h1 class="title-lg">เข้าสู่ระบบผู้บริหาร</h1>
+      <p class="body-sm" style="margin:var(--sm) 0;">ลงชื่อเข้าใช้ด้วยบัญชี Google ที่ได้รับสิทธิ์ผู้บริหาร/ผู้ดูแลระบบเท่านั้น</p>
+      <div id="gsiButtonWrap"></div>
+      <p class="caption" id="authClientIdMissing" style="display:none; color:var(--muted); margin-top:var(--lg);">ยังไม่ได้ตั้งค่า Google Client ID — <button type="button" class="btn-text" id="btnSetClientId" style="padding:0;">ตั้งค่าเลย</button></p>
+    </div>
+    <div id="authStepClientId" style="display:none;">
+      <h1 class="title-lg">ตั้งค่า Google Sign-In</h1>
+      <p class="body-sm" style="margin:var(--sm) 0 var(--lg);">วาง Google OAuth Client ID (ดูขั้นตอนสร้างใน README.md)</p>
+      <form id="authClientIdForm">
+        <div class="field" style="text-align:left;">
+          <label for="authClientIdInput">Google Client ID</label>
+          <input class="text-input" id="authClientIdInput" placeholder="xxxxxxxx.apps.googleusercontent.com" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">บันทึก</button>
+      </form>
+    </div>
+    <div id="authStepDenied" style="display:none;">
+      <h1 class="title-lg">ไม่มีสิทธิ์เข้าถึง</h1>
+      <p class="body-sm" style="margin:var(--sm) 0;">บัญชี <strong id="deniedEmail"></strong> ยังไม่ได้รับสิทธิ์เข้าใช้งานส่วนผู้บริหาร กรุณาติดต่อผู้ดูแลระบบเพื่อขอสิทธิ์ หรือสลับบัญชี Google</p>
+      <button class="btn btn-secondary" id="btnSwitchAccount" style="margin-top:var(--md);">สลับบัญชี Google</button>
+      <br><a href="index.html" class="text-link body-sm" style="display:inline-block; margin-top:var(--lg);">← กลับหน้าแรก</a>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+
+  <!-- Top Nav -->
+  <header class="top-nav">
+    <div class="brand">
+      <a href="index.html" class="brand-mark" style="text-decoration:none; display:flex; align-items:center; justify-content:center;">EC</a>
+      <div class="brand-word">ExecCal<small>ตารางนัดหมายผู้บริหาร</small></div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button class="icon-btn" id="btnExport" title="ดาวน์โหลดรูปภาพ" aria-label="ดาวน์โหลดรูปภาพ">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button class="icon-btn" id="btnMenu" title="เมนู" aria-label="เมนู" style="position:relative;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg>
+        <span id="pendingBadge" style="display:none; position:absolute; top:2px; right:2px; min-width:16px; height:16px; padding:0 3px; border-radius:9999px; background:var(--error); color:#fff; font-size:10px; font-weight:700; align-items:center; justify-content:center;"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <div class="view-switch" role="tablist" aria-label="มุมมองปฏิทิน">
+        <button data-view="week" class="active" role="tab" aria-selected="true">รายสัปดาห์</button>
+        <button data-view="month" role="tab" aria-selected="false">รายเดือน</button>
+      </div>
+      <div class="period-nav">
+        <button id="btnPrev" aria-label="ก่อนหน้า">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="period-label" id="periodLabel">—</span>
+        <button id="btnNext" aria-label="ถัดไป">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="toolbar-row">
+      <div class="exec-filter" id="execFilter"><!-- chips injected --></div>
+      <button class="btn btn-secondary btn-sm" id="btnToday" style="flex-shrink:0;">วันนี้</button>
+    </div>
+  </div>
+
+  <!-- Calendar -->
+  <main id="calendar-view">
+    <div id="exportRoot">
+      <div class="export-title" id="exportTitle" style="display:none;"></div>
+
+      <!-- Week: mobile list -->
+      <div class="week-day-list" id="weekDayList"></div>
+
+      <!-- Week: desktop grid -->
+      <div class="week-grid" id="weekGrid"></div>
+
+      <!-- Month grid -->
+      <div class="month-grid" id="monthGrid" style="display:none;"></div>
+    </div>
+
+    <div class="empty-state" id="globalEmpty" style="display:none;">
+      <div class="em-icon">🗓️</div>
+      <p class="title-sm">ยังไม่มีผู้บริหารในระบบ</p>
+      <p class="body-sm">เพิ่มผู้บริหารก่อน เพื่อเริ่มบันทึกตารางนัดหมาย</p>
+      <button class="btn btn-primary" style="margin-top:12px;" id="btnEmptyAddExec">+ เพิ่มผู้บริหาร</button>
+    </div>
+  </main>
+
+  <button class="fab" id="btnFab" aria-label="เพิ่มนัดหมาย">+</button>
+
+  <footer class="app-footer">ExecCal · ข้อมูลถูกบันทึกไว้ในเบราว์เซอร์นี้เท่านั้น</footer>
+</div>
+
+<!-- ============ Appointment Sheet ============ -->
+<div class="overlay" id="apptOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="apptSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="apptSheetTitle">เพิ่มนัดหมาย</h2>
+      <button class="sheet-close" data-close="apptOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="apptForm">
+      <input type="hidden" id="apptId">
+      <div class="field">
+        <label for="apptExec">ผู้บริหาร</label>
+        <select class="text-input" id="apptExec" required></select>
+      </div>
+      <div class="field">
+        <label for="apptTitle">หัวข้อนัดหมาย</label>
+        <input class="text-input" id="apptTitle" placeholder="เช่น ประชุมทีมผู้บริหาร" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="apptDate">วันที่</label>
+          <input class="text-input" type="date" id="apptDate" required>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="apptStart">เวลาเริ่ม</label>
+          <input class="text-input" type="time" id="apptStart" required>
+        </div>
+        <div class="field">
+          <label for="apptEnd">เวลาสิ้นสุด</label>
+          <input class="text-input" type="time" id="apptEnd" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="apptLocation">สถานที่ / ช่องทาง</label>
+        <input class="text-input" id="apptLocation" placeholder="เช่น ห้องประชุม 1 / Zoom">
+      </div>
+      <div class="field">
+        <label for="apptNotes">หมายเหตุ</label>
+        <textarea class="text-input" id="apptNotes" placeholder="รายละเอียดเพิ่มเติม ผู้เข้าร่วม ฯลฯ"></textarea>
+      </div>
+      <div id="apptRequestInfo" class="body-sm" style="display:none; background:var(--surface-card); padding:10px 12px; border-radius:var(--r-md); margin-bottom:var(--md);"></div>
+      <div id="apptConflictWarning" class="body-sm" style="display:none; color:var(--warning); background:#fef3e0; padding:10px 12px; border-radius:var(--r-md); margin-bottom:var(--md);"></div>
+      <div id="apptApprovalActions" style="display:none; gap:10px; margin-bottom:var(--md);">
+        <button type="button" class="btn btn-danger btn-block" id="btnApptDecline">ปฏิเสธคำขอ</button>
+        <button type="button" class="btn btn-primary btn-block" id="btnApptApprove">✓ อนุมัตินัดหมาย</button>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:var(--lg);">
+        <button type="button" class="btn btn-danger" id="btnApptDelete" style="display:none;">ลบ</button>
+        <button type="submit" class="btn btn-primary btn-block">บันทึกนัดหมาย</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Executives Manager Sheet ============ -->
+<div class="overlay" id="execOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="execSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="execSheetTitle">จัดการผู้บริหาร/ตำแหน่ง</h2>
+      <button class="sheet-close" data-close="execOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="execList"></div>
+    <form id="execForm" style="margin-top:var(--md); border-top:1px solid var(--hairline-soft); padding-top:var(--md);">
+      <input type="hidden" id="execId">
+      <div class="field">
+        <label for="execName">ชื่อ/ตำแหน่ง</label>
+        <input class="text-input" id="execName" placeholder="เช่น ผู้อำนวยการโรงพยาบาลหันคา" required>
+      </div>
+      <div class="field">
+        <label for="execPerson">ชื่อบุคคลจริง (กรอกเฉพาะถ้าดำรงหลายตำแหน่ง)</label>
+        <input class="text-input" id="execPerson" placeholder="เช่น นายสมชาย ใจดี — เว้นว่างได้หากตำแหน่งนี้เป็นคนละคน">
+        <p class="caption" style="color:var(--muted); margin-top:6px;">ใส่ชื่อคนจริงเพื่อให้ระบบเช็คเวลาซ้อนทับข้ามตำแหน่งของบุคคลเดียวกันโดยอัตโนมัติ</p>
+      </div>
+      <div class="field">
+        <label>สีประจำตัว</label>
+        <div class="color-picker" id="execColorPicker"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="btnExecSubmit">+ เพิ่มผู้บริหาร</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Day Detail Sheet (month view tap) ============ -->
+<div class="overlay" id="dayOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="daySheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="daySheetTitle">วันที่</h2>
+      <button class="sheet-close" data-close="dayOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="dayList" style="display:flex; flex-direction:column; gap:8px;"></div>
+    <button class="btn btn-primary btn-block" id="btnDayAdd" style="margin-top:var(--lg);">+ เพิ่มนัดหมายวันนี้</button>
+  </div>
+</div>
+
+<!-- ============ Menu Sheet (export, backup, install) ============ -->
+<div class="overlay" id="menuOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="menuSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="menuSheetTitle">เมนู</h2>
+      <button class="sheet-close" data-close="menuOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <div id="menuSignedInAs" class="body-sm" style="background:var(--surface-card); padding:10px 12px; border-radius:var(--r-md); display:none;"></div>
+      <button class="btn btn-secondary btn-block" id="btnOpenExec" style="justify-content:flex-start;">👤 จัดการผู้บริหาร</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenSummary" style="justify-content:flex-start;">📍 สรุปตารางวันนี้ (ใครอยู่ไหนช่วงไหน)</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenPending" style="justify-content:flex-start;">
+        🔔 คำขอนัดหมายที่รออนุมัติ<span id="pendingMenuCount" class="badge-pill" style="margin-left:6px; display:none;"></span>
+      </button>
+      <button class="btn btn-secondary btn-block" id="btnOpenHolidays" style="justify-content:flex-start;">🎌 วันหยุดพิเศษ</button>
+      <button class="btn btn-secondary btn-block" id="btnCopyBookingLink" style="justify-content:flex-start;">🔗 คัดลอกลิงก์สำหรับขอนัดหมาย</button>
+      <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
+      <button class="btn btn-secondary btn-block" id="btnMenuExport" style="justify-content:flex-start;">🖼️ ดาวน์โหลดตาราง (มุมมองปัจจุบัน)</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenPoster" style="justify-content:flex-start;">🖨️ ดาวน์โหลดตารางปฏิบัติงาน (แบบทางการ)</button>
+      <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
+      <button class="btn btn-secondary btn-block" id="btnOpenAdminEmails" style="justify-content:flex-start;">🔐 จัดการอีเมลผู้มีสิทธิ์เข้าถึง</button>
+      <button class="btn btn-secondary btn-block" id="btnNotifPermission" style="justify-content:flex-start;">🔔 เปิดการแจ้งเตือนคำขอนัดหมายใหม่</button>
+      <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
+      <button class="btn btn-secondary btn-block" id="btnOpenSheetConnect" style="justify-content:flex-start;">🔗 เชื่อมต่อ Google Sheet</button>
+      <button class="btn btn-secondary btn-block" id="btnSyncNow" style="justify-content:flex-start;">🔄 ซิงก์ตอนนี้</button>
+      <p class="caption" id="sheetSyncStatus" style="color:var(--muted); padding:0 4px;">ยังไม่เชื่อมต่อ Google Sheet</p>
+      <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
+      <button class="btn btn-secondary btn-block" id="btnExportJSON" style="justify-content:flex-start;">📤 สำรองข้อมูล (JSON)</button>
+      <button class="btn btn-secondary btn-block" id="btnImportJSON" style="justify-content:flex-start;">📥 นำเข้าข้อมูล (JSON)</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+      <button class="btn btn-secondary btn-block" id="btnInstallApp" style="justify-content:flex-start; display:none;">⬇️ ติดตั้งแอปลงหน้าจอหลัก</button>
+      <button class="btn btn-secondary btn-block" id="btnSignOut" style="justify-content:flex-start;">🚪 ออกจากระบบ</button>
+      <button class="btn btn-danger btn-block" id="btnClearAll" style="justify-content:flex-start;">🗑️ ล้างข้อมูลทั้งหมด</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Admin emails manager sheet ============ -->
+<div class="overlay" id="adminEmailsOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="adminEmailsSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="adminEmailsSheetTitle">อีเมลผู้มีสิทธิ์เข้าถึง</h2>
+      <button class="sheet-close" data-close="adminEmailsOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" style="margin-bottom:var(--md);">มีเฉพาะบัญชี Google อีเมลในรายการนี้เท่านั้นที่เข้าใช้งานส่วนผู้บริหารได้ (หมายเหตุ: เป็นการจำกัดการเข้าถึงระดับหน้าจอแอปเท่านั้น ไม่ใช่การเข้ารหัสระดับ API — ดูรายละเอียดข้อจำกัดใน README.md)</p>
+    <div id="adminEmailsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:var(--md);"></div>
+    <form id="adminEmailsForm">
+      <div class="field">
+        <label for="adminEmailInput">เพิ่มอีเมล</label>
+        <input class="text-input" type="email" id="adminEmailInput" placeholder="name@example.com" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">+ เพิ่มอีเมล</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Daily summary sheet (per-person cross-position timeline) ============ -->
+<div class="overlay" id="summaryOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="summarySheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="summarySheetTitle">สรุปตารางวันนี้</h2>
+      <button class="sheet-close" data-close="summaryOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="field">
+      <label for="summaryDate">วันที่</label>
+      <input class="text-input" type="date" id="summaryDate">
+    </div>
+    <div id="summaryList" style="display:flex; flex-direction:column; gap:14px; margin-top:var(--sm);"></div>
+  </div>
+</div>
+
+<!-- ============ Pending approvals sheet ============ -->
+<div class="overlay" id="pendingOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pendingSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="pendingSheetTitle">คำขอนัดหมายที่รออนุมัติ</h2>
+      <button class="sheet-close" data-close="pendingOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="pendingList" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+</div>
+
+<!-- ============ Holiday manager sheet ============ -->
+<div class="overlay" id="holidayOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="holidaySheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="holidaySheetTitle">วันหยุดพิเศษ</h2>
+      <button class="sheet-close" data-close="holidayOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" style="margin-bottom:var(--md);">เสาร์-อาทิตย์ถูกตั้งเป็นวันหยุดให้อัตโนมัติ เพิ่มวันหยุดพิเศษอื่น ๆ (เช่น วันหยุดนักขัตฤกษ์) ได้ที่นี่ — ใช้แสดงในตารางปฏิบัติงานแบบทางการ</p>
+    <div id="holidayList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:var(--md);"></div>
+    <form id="holidayForm">
+      <div class="field-row">
+        <div class="field" style="flex:1.4;">
+          <label for="holidayDate">วันที่</label>
+          <input class="text-input" type="date" id="holidayDate" required>
+        </div>
+        <div class="field" style="flex:2;">
+          <label for="holidayLabel">ป้ายกำกับ</label>
+          <input class="text-input" id="holidayLabel" placeholder="วันหยุดราชการ" value="วันหยุดราชการ">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">+ เพิ่มวันหยุด</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Poster export sheet (official ตารางปฏิบัติงาน format) ============ -->
+<div class="overlay" id="posterOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="posterSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="posterSheetTitle">ดาวน์โหลดตารางปฏิบัติงาน</h2>
+      <button class="sheet-close" data-close="posterOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="posterForm">
+      <div class="field">
+        <label for="posterExec">ผู้บริหาร</label>
+        <select class="text-input" id="posterExec" required></select>
+      </div>
+      <div class="field">
+        <label for="posterWeekStart">สัปดาห์ที่เริ่มวันจันทร์</label>
+        <input class="text-input" type="date" id="posterWeekStart" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">🖨️ ดาวน์โหลดรูปภาพ</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Google Sheet connect sheet ============ -->
+<div class="overlay" id="sheetOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="sheetSheetTitle">เชื่อมต่อ Google Sheet</h2>
+      <button class="sheet-close" data-close="sheetOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" style="margin-bottom:var(--md);">
+      วางลิงก์ Web App ที่ได้จากการ Deploy Google Apps Script (ดูขั้นตอนตั้งค่าใน README.md) เมื่อเชื่อมต่อแล้ว
+      นัดหมายทุกรายการจะถูกอ่าน/บันทึกลง Google Sheet โดยตรง — พิมพ์แถวใหม่ในชีตเองก็จะแสดงผลในแอปได้เช่นกัน
+    </p>
+    <form id="gasConnectForm">
+      <div class="field">
+        <label for="gasUrlInput">ลิงก์ Web App (Apps Script)</label>
+        <input class="text-input" id="gasUrlInput" type="url" placeholder="https://script.google.com/macros/s/xxxxx/exec" required>
+      </div>
+      <p class="caption" id="sheetSyncStatus2" style="color:var(--muted); margin-bottom:var(--md);"></p>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn btn-danger" id="btnSheetDisconnect" style="display:none;">ยกเลิกการเชื่อมต่อ</button>
+        <button type="submit" class="btn btn-primary btn-block">บันทึกและซิงก์ทันที</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
