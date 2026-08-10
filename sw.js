@@ -3,8 +3,10 @@ const CACHE_NAME = "execcal-cache-v1";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./booking.html",
   "./style.css",
   "./app.js",
+  "./booking.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

@@ -24,9 +24,13 @@
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed.holidays)) parsed.holidays = [];
+        return parsed;
+      }
     } catch (e) { console.warn("Failed to load state", e); }
-    return { executives: [], appointments: [] };
+    return { executives: [], appointments: [], holidays: [] };
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -75,6 +79,14 @@
     if (activeFilters === null) return true;
     return activeFilters.has(execId);
   }
+  function holidayFor(dateISO) {
+    const custom = state.holidays.find(h => h.date === dateISO);
+    if (custom) return custom;
+    const dow = parseISO(dateISO).getDay();
+    if (dow === 0 || dow === 6) return { date: dateISO, label: "วันหยุดราชการ" };
+    return null;
+  }
+  function pendingCount() { return state.appointments.filter(a => a.status === "pending").length; }
 
   /* ============================================================
      Google Sheets sync (via Google Apps Script Web App bridge)
@@ -112,9 +124,17 @@
       end: String(a.end || "").trim(),
       location: String(a.location || "").trim(),
       notes: String(a.notes || "").trim(),
+      status: (String(a.status || "").trim().toLowerCase() === "pending") ? "pending" : "confirmed",
+      requestedBy: String(a.requestedBy || "").trim(),
+      requestedContact: String(a.requestedContact || "").trim(),
+      requestNote: String(a.requestNote || "").trim(),
     })).filter(a => a.execId && a.date && a.title && a.start && a.end);
 
-    state = { executives, appointments };
+    const holidays = Array.isArray(data.holidays)
+      ? data.holidays.map(h => ({ date: String(h.date || "").trim(), label: String(h.label || "วันหยุดราชการ").trim() })).filter(h => h.date)
+      : [];
+
+    state = { executives, appointments, holidays };
     if (activeFilters) activeFilters = null;
     saveState();
     setLastSync();
@@ -272,12 +292,15 @@
   function apptCardHTML(a, compact) {
     const ex = execById(a.execId);
     const cls = colorClass(ex ? ex.colorKey : "cream");
-    return `<div class="appt-card ${cls}" data-appt-id="${a.id}">
+    const pending = a.status === "pending";
+    return `<div class="appt-card ${cls} ${pending ? "pending" : ""}" data-appt-id="${a.id}">
+        ${pending ? `<span class="appt-pending-badge">รออนุมัติ</span>` : ""}
         <span class="appt-time">${a.start}–${a.end}</span>
         <span class="appt-title">${escapeHtml(a.title)}</span>
         <span class="appt-meta">
           ${state.executives.length > 1 ? `<span class="appt-exec">${escapeHtml(ex ? ex.name : "—")}</span>` : ""}
           ${a.location ? `<span>📍 ${escapeHtml(a.location)}</span>` : ""}
+          ${pending && a.requestedBy ? `<span>👤 ${escapeHtml(a.requestedBy)}</span>` : ""}
         </span>
       </div>`;
   }
@@ -388,6 +411,7 @@
   function renderAll() {
     renderPeriodLabel();
     renderExecFilter();
+    renderPendingBadge();
     if (view === "week") {
       weekDayList.style.display = "";
       weekGrid.style.display = "";
@@ -441,10 +465,12 @@
     refreshExecSelect();
     apptForm.reset();
     $("#apptConflictWarning").style.display = "none";
+    $("#apptRequestInfo").style.display = "none";
+    $("#apptApprovalActions").style.display = "none";
     if (apptId) {
       const a = state.appointments.find(x => x.id === apptId);
       if (!a) return;
-      $("#apptSheetTitle").textContent = "แก้ไขนัดหมาย";
+      $("#apptSheetTitle").textContent = a.status === "pending" ? "คำขอนัดหมาย (รออนุมัติ)" : "แก้ไขนัดหมาย";
       $("#apptId").value = a.id;
       apptExecSelect.value = a.execId;
       $("#apptTitle").value = a.title;
@@ -454,6 +480,16 @@
       $("#apptLocation").value = a.location || "";
       $("#apptNotes").value = a.notes || "";
       $("#btnApptDelete").style.display = "";
+      if (a.status === "pending") {
+        $("#btnApptDelete").style.display = "none";
+        $("#apptApprovalActions").style.display = "flex";
+        if (a.requestedBy || a.requestedContact || a.requestNote) {
+          $("#apptRequestInfo").style.display = "block";
+          $("#apptRequestInfo").innerHTML = `<strong>คำขอโดย:</strong> ${escapeHtml(a.requestedBy || "ไม่ระบุชื่อ")}` +
+            (a.requestedContact ? `<br><strong>ติดต่อ:</strong> ${escapeHtml(a.requestedContact)}` : "") +
+            (a.requestNote ? `<br><strong>หมายเหตุจากผู้ขอ:</strong> ${escapeHtml(a.requestNote)}` : "");
+        }
+      }
     } else {
       $("#apptSheetTitle").textContent = "เพิ่มนัดหมาย";
       $("#apptId").value = "";
@@ -467,9 +503,33 @@
 
   function quickAddForDate(dateISO) { openApptSheet(null, dateISO); }
 
+  $("#btnApptApprove").addEventListener("click", async () => {
+    const id = $("#apptId").value;
+    if (!id) return;
+    const local = state.appointments.find(a => a.id === id);
+    if (local) { local.status = "confirmed"; saveState(); renderAll(); }
+    closeSheet("apptOverlay");
+    toast("อนุมัตินัดหมายแล้ว");
+    const ok = await pushToSheet("approveAppointment", { id });
+    if (!ok) { pullFromSheet({ silent: true }); }
+  });
+  $("#btnApptDecline").addEventListener("click", async () => {
+    const id = $("#apptId").value;
+    if (!id) return;
+    if (!confirm("ปฏิเสธคำขอนัดหมายนี้หรือไม่?")) return;
+    state.appointments = state.appointments.filter(a => a.id !== id);
+    saveState();
+    closeSheet("apptOverlay");
+    renderAll();
+    toast("ปฏิเสธคำขอนัดหมายแล้ว");
+    pushToSheet("declineAppointment", { id });
+  });
+
+
   apptForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const id = $("#apptId").value || uid();
+    const existing = state.appointments.find(a => a.id === id);
     const data = {
       id,
       execId: apptExecSelect.value,
@@ -479,6 +539,10 @@
       end: $("#apptEnd").value,
       location: $("#apptLocation").value.trim(),
       notes: $("#apptNotes").value.trim(),
+      status: "confirmed", // admin-entered appointments are always confirmed
+      requestedBy: existing ? existing.requestedBy || "" : "",
+      requestedContact: existing ? existing.requestedContact || "" : "",
+      requestNote: existing ? existing.requestNote || "" : "",
     };
     if (toMinutes(data.end) <= toMinutes(data.start)) {
       toast("เวลาสิ้นสุดต้องหลังเวลาเริ่ม");
@@ -494,10 +558,10 @@
     toast("บันทึกนัดหมายแล้ว");
 
     const ex = execById(data.execId);
-    if (ex) pushToSheet("upsertAppointment", { id: data.id, execName: ex.name, date: data.date, start: data.start, end: data.end, title: data.title, location: data.location, notes: data.notes });
+    if (ex) pushToSheet("upsertAppointment", { id: data.id, execName: ex.name, date: data.date, start: data.start, end: data.end, title: data.title, location: data.location, notes: data.notes, requestedBy: data.requestedBy, requestedContact: data.requestedContact, requestNote: data.requestNote });
   });
 
-  // live conflict check
+  // live conflict check (only against CONFIRMED appointments — pending requests don't block)
   ["apptExec", "apptDate", "apptStart", "apptEnd"].forEach(id => {
     $("#" + id).addEventListener("change", checkConflict);
   });
@@ -510,7 +574,7 @@
     const warnEl = $("#apptConflictWarning");
     if (!execId || !date || !start || !end) { warnEl.style.display = "none"; return; }
     const conflict = state.appointments.find(a =>
-      a.id !== curId && a.execId === execId && a.date === date &&
+      a.id !== curId && a.execId === execId && a.date === date && a.status === "confirmed" &&
       toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
     );
     if (conflict) {
@@ -783,6 +847,280 @@
   });
 
   /* ============================================================
+     Pending approvals sheet
+     ============================================================ */
+  function renderPendingBadge() {
+    const n = pendingCount();
+    const badgeTop = $("#pendingBadge");
+    const badgeMenu = $("#pendingMenuCount");
+    if (n > 0) {
+      badgeTop.textContent = n > 9 ? "9+" : String(n);
+      badgeTop.style.display = "flex";
+      badgeMenu.textContent = String(n);
+      badgeMenu.style.display = "inline-flex";
+    } else {
+      badgeTop.style.display = "none";
+      badgeMenu.style.display = "none";
+    }
+  }
+
+  function renderPendingList() {
+    const listEl = $("#pendingList");
+    const pending = state.appointments
+      .filter(a => a.status === "pending")
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+    if (pending.length === 0) {
+      listEl.innerHTML = `<div class="empty-state" style="padding:var(--lg) 0;"><div class="em-icon">✅</div><p class="body-sm">ไม่มีคำขอนัดหมายที่รออนุมัติ</p></div>`;
+      return;
+    }
+    listEl.innerHTML = pending.map(a => {
+      const ex = execById(a.execId);
+      const d = parseISO(a.date);
+      return `<div class="testimonial-card" data-id="${a.id}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div>
+            <div class="title-sm">${escapeHtml(a.title)}</div>
+            <div class="body-sm">${DOW_FULL[d.getDay()]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear() + 543} · ${a.start}–${a.end}</div>
+            <div class="body-sm">👔 ${escapeHtml(ex ? ex.name : "—")}</div>
+            ${a.requestedBy ? `<div class="body-sm">👤 ${escapeHtml(a.requestedBy)}${a.requestedContact ? " · " + escapeHtml(a.requestedContact) : ""}</div>` : ""}
+            ${a.requestNote ? `<div class="body-sm" style="color:var(--muted);">"${escapeHtml(a.requestNote)}"</div>` : ""}
+          </div>
+          <span class="badge-pill" style="background:var(--brand-ochre); color:var(--ink); flex-shrink:0;">รออนุมัติ</span>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:var(--sm);">
+          <button class="btn btn-danger btn-sm" data-act="decline" style="flex:1;">ปฏิเสธ</button>
+          <button class="btn btn-primary btn-sm" data-act="approve" style="flex:1;">✓ อนุมัติ</button>
+        </div>
+      </div>`;
+    }).join("");
+    listEl.querySelectorAll("[data-act='approve']").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.closest("[data-id]").dataset.id;
+        const local = state.appointments.find(a => a.id === id);
+        if (local) { local.status = "confirmed"; saveState(); renderAll(); }
+        renderPendingList(); renderPendingBadge();
+        toast("อนุมัตินัดหมายแล้ว");
+        const ok = await pushToSheet("approveAppointment", { id });
+        if (!ok) pullFromSheet({ silent: true });
+        renderPendingList(); renderPendingBadge();
+      });
+    });
+    listEl.querySelectorAll("[data-act='decline']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("[data-id]").dataset.id;
+        if (!confirm("ปฏิเสธคำขอนัดหมายนี้หรือไม่?")) return;
+        state.appointments = state.appointments.filter(a => a.id !== id);
+        saveState();
+        renderAll();
+        renderPendingList(); renderPendingBadge();
+        toast("ปฏิเสธคำขอนัดหมายแล้ว");
+        pushToSheet("declineAppointment", { id });
+      });
+    });
+  }
+
+  $("#btnOpenPending").addEventListener("click", () => {
+    closeSheet("menuOverlay");
+    renderPendingList();
+    openSheet("pendingOverlay");
+  });
+
+  /* ============================================================
+     Holiday manager sheet
+     ============================================================ */
+  function renderHolidayList() {
+    const listEl = $("#holidayList");
+    const customs = state.holidays.slice().sort((a, b) => a.date.localeCompare(b.date));
+    if (customs.length === 0) {
+      listEl.innerHTML = `<p class="body-sm" style="color:var(--muted);">ยังไม่มีวันหยุดพิเศษที่เพิ่มเอง</p>`;
+      return;
+    }
+    listEl.innerHTML = customs.map(h => {
+      const d = parseISO(h.date);
+      return `<div class="exec-row" data-date="${h.date}">
+        <span class="exec-name">${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543} — ${escapeHtml(h.label)}</span>
+        <button data-action="delete-holiday" aria-label="ลบ">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>`;
+    }).join("");
+    listEl.querySelectorAll("[data-action='delete-holiday']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const date = btn.closest("[data-date]").dataset.date;
+        state.holidays = state.holidays.filter(h => h.date !== date);
+        saveState();
+        renderHolidayList();
+        toast("ลบวันหยุดแล้ว");
+        pushToSheet("deleteHoliday", { date });
+      });
+    });
+  }
+  $("#btnOpenHolidays").addEventListener("click", () => {
+    closeSheet("menuOverlay");
+    renderHolidayList();
+    openSheet("holidayOverlay");
+  });
+  $("#holidayForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const date = $("#holidayDate").value;
+    const label = $("#holidayLabel").value.trim() || "วันหยุดราชการ";
+    if (!date) return;
+    const idx = state.holidays.findIndex(h => h.date === date);
+    if (idx >= 0) state.holidays[idx] = { date, label }; else state.holidays.push({ date, label });
+    saveState();
+    $("#holidayForm").reset();
+    $("#holidayLabel").value = "วันหยุดราชการ";
+    renderHolidayList();
+    renderAll();
+    toast("เพิ่มวันหยุดแล้ว");
+    pushToSheet("upsertHoliday", { date, label });
+  });
+
+  /* ============================================================
+     Public booking link (share to non-admins)
+     ============================================================ */
+  $("#btnCopyBookingLink").addEventListener("click", async () => {
+    const url = getSheetUrl();
+    if (!url) { toast("กรุณาเชื่อมต่อ Google Sheet ก่อน จึงจะสร้างลิงก์ขอนัดหมายได้"); closeSheet("menuOverlay"); openSheetConnectSheet(); return; }
+    const base = new URL("booking.html", window.location.href);
+    base.searchParams.set("gas", url);
+    const link = base.toString();
+    try {
+      await navigator.clipboard.writeText(link);
+      toast("คัดลอกลิงก์แล้ว — ส่งให้ผู้ที่ต้องการขอนัดหมายได้เลย");
+    } catch (e) {
+      prompt("คัดลอกลิงก์นี้ไปแชร์:", link);
+    }
+    closeSheet("menuOverlay");
+  });
+
+  /* ============================================================
+     Official "ตารางปฏิบัติงาน" poster export (matches supplied reference design)
+     ============================================================ */
+  const POSTER_DOW = [
+    { key: 1, label: "จันทร์", icon: "🗓️", bg: "#eaf2fb" },
+    { key: 2, label: "อังคาร", icon: "📋", bg: "#eaf7ee" },
+    { key: 3, label: "พุธ", icon: "🏖️", bg: "#fdeaf0" },
+    { key: 4, label: "พฤหัส", icon: "🏥", bg: "#f2eafc" },
+    { key: 5, label: "ศุกร์", icon: "🤝", bg: "#fdeaf0" },
+    { key: 6, label: "เสาร์", icon: "🏠", bg: "#fdf1e2" },
+    { key: 0, label: "อาทิตย์", icon: "🌳", bg: "#fdeaf0" },
+  ];
+
+  function mondayOf(d) {
+    const x = startOfDay(d);
+    const dow = x.getDay(); // 0=Sun..6=Sat
+    const diff = dow === 0 ? -6 : 1 - dow;
+    x.setDate(x.getDate() + diff);
+    return x;
+  }
+
+  function openPosterSheet() {
+    if (state.executives.length === 0) { toast("กรุณาเพิ่มผู้บริหารก่อน"); closeSheet("menuOverlay"); openExecSheet(); return; }
+    $("#posterExec").innerHTML = state.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+    $("#posterWeekStart").value = fmtISO(mondayOf(anchor));
+    closeSheet("menuOverlay");
+    openSheet("posterOverlay");
+  }
+  $("#btnOpenPoster").addEventListener("click", openPosterSheet);
+
+  $("#posterForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const execId = $("#posterExec").value;
+    const weekStartInput = $("#posterWeekStart").value;
+    if (!execId || !weekStartInput) return;
+    generatePoster(execId, mondayOf(parseISO(weekStartInput)));
+  });
+
+  async function generatePoster(execId, monday) {
+    const ex = execById(execId);
+    if (!ex) return;
+    if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
+    toast("กำลังสร้างตารางปฏิบัติงาน...");
+
+    const wrap = document.createElement("div");
+    wrap.style.position = "fixed";
+    wrap.style.left = "-9999px";
+    wrap.style.top = "0";
+    wrap.style.width = "1400px";
+    wrap.style.background = "linear-gradient(180deg,#fdf9f0,#fffaf0)";
+    wrap.style.padding = "36px";
+    wrap.style.fontFamily = "'Inter','Noto Sans Thai',sans-serif";
+    wrap.style.boxSizing = "border-box";
+
+    const rowsHTML = POSTER_DOW.map(d => {
+      const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
+      const date = addDays(monday, dayOffset);
+      const iso = fmtISO(date);
+      const holiday = holidayFor(iso);
+      const dayAppts = state.appointments.filter(a => a.execId === execId && a.date === iso && a.status === "confirmed").sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+      const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
+      const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
+
+      function cellContent(list) {
+        if (holiday) {
+          return `<div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:34px;height:34px;border-radius:50%;background:#fff;border:2px solid #e0475a;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#e0475a;text-align:center;line-height:1;">CLOSED</div>
+            <span style="color:#c23a5e; font-weight:700; font-size:19px;">${escapeHtml(holiday.label)}</span>
+          </div>`;
+        }
+        if (list.length === 0) {
+          return `<span style="color:#9a9a9a; font-size:17px;">ไม่มีนัดหมาย</span>`;
+        }
+        return `<div style="display:flex; align-items:center; gap:10px;">
+          <div style="width:34px;height:34px;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🏢</div>
+          <span style="font-weight:700; font-size:19px; color:#12305c; line-height:1.3;">${list.map(a => escapeHtml(a.location || a.title)).join(" / ")}</span>
+        </div>`;
+      }
+
+      return `<div style="display:grid; grid-template-columns:190px 190px 1fr 1fr; gap:10px; margin-bottom:10px;">
+        <div style="background:${d.bg}; border-radius:16px; display:flex; align-items:center; gap:10px; padding:0 18px; font-weight:800; font-size:21px; color:#12305c;">
+          <span style="font-size:24px;">${d.icon}</span>${d.label}
+        </div>
+        <div style="background:#ffffff; border-radius:16px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:21px; color:#12305c;">
+          ${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}
+        </div>
+        <div style="background:${holiday ? "#fdeaf0" : "#eaf7ee"}; border-radius:16px; display:flex; align-items:center; padding:0 20px; min-height:70px;">${cellContent(morning)}</div>
+        <div style="background:${holiday ? "#fdeaf0" : "#eaf2fb"}; border-radius:16px; display:flex; align-items:center; padding:0 20px; min-height:70px;">${cellContent(afternoon)}</div>
+      </div>`;
+    }).join("");
+
+    wrap.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:center; gap:24px; margin-bottom:8px;">
+        <span style="font-size:52px;">📅</span>
+        <h1 style="font-family:'Inter',sans-serif; font-weight:800; font-size:44px; color:#12305c; letter-spacing:-1px; margin:0;">ตารางปฏิบัติงาน ${escapeHtml(ex.name)}</h1>
+        <span style="font-size:52px;">🏥</span>
+      </div>
+      <div style="text-align:center; color:#d3a94a; font-size:20px; margin-bottom:20px;">◆ ─────────── ❖ ─────────── ◆</div>
+      <div style="display:grid; grid-template-columns:190px 190px 1fr 1fr; gap:10px; margin-bottom:10px;">
+        <div style="background:#12305c; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">📆 วัน</div>
+        <div style="background:#12305c; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">📆 วันที่</div>
+        <div style="background:#2f8f4e; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">☀️ เช้า</div>
+        <div style="background:#1c56a8; color:#fff; border-radius:16px; display:flex; align-items:center; gap:8px; padding:0 18px; font-weight:800; font-size:19px;">⛅ บ่าย</div>
+      </div>
+      ${rowsHTML}
+      <div style="margin-top:14px; background:#12305c; color:#fff; border-radius:9999px; padding:14px 28px; text-align:center; font-size:16px;">
+        💙 หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม
+      </div>
+    `;
+    document.body.appendChild(wrap);
+    try {
+      const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: "#fffaf0", useCORS: true });
+      const link = document.createElement("a");
+      link.download = `ตารางปฏิบัติงาน-${ex.name}-${fmtISO(monday)}.jpg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.95);
+      link.click();
+      toast("ดาวน์โหลดตารางปฏิบัติงานแล้ว");
+      closeSheet("posterOverlay");
+    } catch (err) {
+      console.error(err);
+      toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
+    } finally {
+      document.body.removeChild(wrap);
+    }
+  }
+
+  /* ============================================================
      PWA: service worker + install prompt
      ============================================================ */
   if ("serviceWorker" in navigator) {
@@ -813,8 +1151,8 @@
     const e2 = { id: uid(), name: "ผู้อำนวยการฝ่ายปฏิบัติการ (COO)", colorKey: "teal" };
     state.executives.push(e1, e2);
     state.appointments.push(
-      { id: uid(), execId: e1.id, title: "ประชุมคณะกรรมการบริหาร", date: fmtISO(today), start: "09:00", end: "10:30", location: "ห้องประชุมใหญ่ ชั้น 12", notes: "" },
-      { id: uid(), execId: e2.id, title: "ตรวจเยี่ยมโรงงาน", date: fmtISO(addDays(today, 1)), start: "13:00", end: "16:00", location: "โรงงานระยอง", notes: "" }
+      { id: uid(), execId: e1.id, title: "ประชุมคณะกรรมการบริหาร", date: fmtISO(today), start: "09:00", end: "10:30", location: "ห้องประชุมใหญ่ ชั้น 12", notes: "", status: "confirmed", requestedBy: "", requestedContact: "", requestNote: "" },
+      { id: uid(), execId: e2.id, title: "ตรวจเยี่ยมโรงงาน", date: fmtISO(addDays(today, 1)), start: "13:00", end: "16:00", location: "โรงงานระยอง", notes: "", status: "confirmed", requestedBy: "", requestedContact: "", requestNote: "" }
     );
     saveState();
   }

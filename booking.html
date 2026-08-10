@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>ขอเข้าพบผู้บริหาร — ExecCal</title>
+<meta name="theme-color" content="#fffaf0">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  body{ font-family:"Inter","Noto Sans Thai",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .booking-wrap{ max-width:560px; margin:0 auto; padding:var(--md); padding-bottom:var(--xxl); }
+  .avail-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:var(--md); }
+  .avail-item{ font-size:13px; padding:8px 12px; border-radius:var(--r-md); background:var(--surface-card); display:flex; justify-content:space-between; }
+  .avail-item.pending{ background:#fdf1e2; }
+  .state-banner{ padding:12px 14px; border-radius:var(--r-md); font-size:14px; font-weight:600; margin-bottom:var(--md); display:none; }
+  .state-banner.error{ background:#fde8e8; color:var(--error); display:block; }
+  .state-banner.warn{ background:#fef3e0; color:#8a5a00; display:block; }
+  .success-card{ text-align:center; padding:var(--xxl) var(--lg); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top-nav">
+    <div class="brand">
+      <div class="brand-mark">EC</div>
+      <div class="brand-word">ExecCal<small>ขอเข้าพบผู้บริหาร</small></div>
+    </div>
+  </header>
+
+  <main class="booking-wrap">
+    <div id="noLinkState" style="display:none;">
+      <div class="empty-state">
+        <div class="em-icon">🔗</div>
+        <p class="title-sm">ลิงก์นี้ไม่ถูกต้องหรือไม่สมบูรณ์</p>
+        <p class="body-sm">กรุณาติดต่อขอลิงก์สำหรับขอนัดหมายใหม่จากผู้ดูแลระบบ</p>
+      </div>
+    </div>
+
+    <div id="loadingState" style="display:none; text-align:center; padding:var(--xxl) 0; color:var(--muted);">กำลังโหลดข้อมูล...</div>
+
+    <div id="formState" style="display:none;">
+      <p class="body-sm" style="margin:var(--md) 0;">กรอกแบบฟอร์มเพื่อขอเข้าพบผู้บริหาร ระบบจะแจ้งเตือนหากเวลาที่เลือกไม่ว่าง และคำขอของท่านจะต้องรอการอนุมัติจากผู้บริหารก่อนจึงจะยืนยันได้</p>
+
+      <form id="bookingForm">
+        <div class="field">
+          <label for="bkExec">ต้องการนัดพบ</label>
+          <select class="text-input" id="bkExec" required></select>
+        </div>
+        <div class="field">
+          <label for="bkTitle">เรื่องที่ต้องการเข้าพบ</label>
+          <input class="text-input" id="bkTitle" placeholder="เช่น ขอเข้าพบเพื่อรายงานความคืบหน้าโครงการ" required>
+        </div>
+        <div class="field">
+          <label for="bkDate">วันที่ต้องการนัด</label>
+          <input class="text-input" type="date" id="bkDate" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="bkStart">เวลาเริ่ม</label>
+            <input class="text-input" type="time" id="bkStart" required>
+          </div>
+          <div class="field">
+            <label for="bkEnd">เวลาสิ้นสุด</label>
+            <input class="text-input" type="time" id="bkEnd" required>
+          </div>
+        </div>
+
+        <div id="availWrap" style="display:none;">
+          <label class="body-sm" style="font-weight:600; display:block; margin-bottom:6px;">ช่วงเวลาที่มีนัดอยู่แล้วในวันนี้</label>
+          <div class="avail-list" id="availList"></div>
+        </div>
+        <div id="conflictBanner" class="state-banner"></div>
+
+        <div class="field">
+          <label for="bkName">ชื่อ-นามสกุลผู้ขอนัด</label>
+          <input class="text-input" id="bkName" placeholder="ชื่อของท่าน" required>
+        </div>
+        <div class="field">
+          <label for="bkContact">ช่องทางติดต่อกลับ</label>
+          <input class="text-input" id="bkContact" placeholder="เบอร์โทร / LINE / อีเมล" required>
+        </div>
+        <div class="field">
+          <label for="bkNote">หมายเหตุเพิ่มเติม</label>
+          <textarea class="text-input" id="bkNote" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="bkSubmit">ส่งคำขอนัดหมาย</button>
+      </form>
+    </div>
+
+    <div id="successState" style="display:none;">
+      <div class="success-card">
+        <div class="em-icon" style="font-size:48px;">✅</div>
+        <p class="title-md">ส่งคำขอนัดหมายเรียบร้อยแล้ว</p>
+        <p class="body-sm" style="margin-top:8px;">คำขอของท่านอยู่ระหว่างรอการอนุมัติจากผู้บริหาร เจ้าหน้าที่จะติดต่อกลับตามช่องทางที่ให้ไว้เมื่อมีการยืนยัน</p>
+        <button class="btn btn-secondary" style="margin-top:var(--lg);" id="btnBookAgain">ส่งคำขอใหม่อีกครั้ง</button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="app-footer">ExecCal · ระบบขอเข้าพบผู้บริหาร</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="booking.js"></script>
+</body>
+</html>

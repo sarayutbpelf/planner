@@ -33,8 +33,9 @@
       <button class="icon-btn" id="btnExport" title="ดาวน์โหลดรูปภาพ" aria-label="ดาวน์โหลดรูปภาพ">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
-      <button class="icon-btn" id="btnMenu" title="เมนู" aria-label="เมนู">
+      <button class="icon-btn" id="btnMenu" title="เมนู" aria-label="เมนู" style="position:relative;">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg>
+        <span id="pendingBadge" style="display:none; position:absolute; top:2px; right:2px; min-width:16px; height:16px; padding:0 3px; border-radius:9999px; background:var(--error); color:#fff; font-size:10px; font-weight:700; align-items:center; justify-content:center;"></span>
       </button>
     </div>
   </header>
@@ -134,7 +135,12 @@
         <label for="apptNotes">หมายเหตุ</label>
         <textarea class="text-input" id="apptNotes" placeholder="รายละเอียดเพิ่มเติม ผู้เข้าร่วม ฯลฯ"></textarea>
       </div>
+      <div id="apptRequestInfo" class="body-sm" style="display:none; background:var(--surface-card); padding:10px 12px; border-radius:var(--r-md); margin-bottom:var(--md);"></div>
       <div id="apptConflictWarning" class="body-sm" style="display:none; color:var(--warning); background:#fef3e0; padding:10px 12px; border-radius:var(--r-md); margin-bottom:var(--md);"></div>
+      <div id="apptApprovalActions" style="display:none; gap:10px; margin-bottom:var(--md);">
+        <button type="button" class="btn btn-danger btn-block" id="btnApptDecline">ปฏิเสธคำขอ</button>
+        <button type="button" class="btn btn-primary btn-block" id="btnApptApprove">✓ อนุมัตินัดหมาย</button>
+      </div>
       <div style="display:flex; gap:10px; margin-top:var(--lg);">
         <button type="button" class="btn btn-danger" id="btnApptDelete" style="display:none;">ลบ</button>
         <button type="submit" class="btn btn-primary btn-block">บันทึกนัดหมาย</button>
@@ -196,7 +202,14 @@
     </div>
     <div style="display:flex; flex-direction:column; gap:8px;">
       <button class="btn btn-secondary btn-block" id="btnOpenExec" style="justify-content:flex-start;">👤 จัดการผู้บริหาร</button>
-      <button class="btn btn-secondary btn-block" id="btnMenuExport" style="justify-content:flex-start;">🖼️ ดาวน์โหลดตารางเป็น JPEG</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenPending" style="justify-content:flex-start;">
+        🔔 คำขอนัดหมายที่รออนุมัติ<span id="pendingMenuCount" class="badge-pill" style="margin-left:6px; display:none;"></span>
+      </button>
+      <button class="btn btn-secondary btn-block" id="btnOpenHolidays" style="justify-content:flex-start;">🎌 วันหยุดพิเศษ</button>
+      <button class="btn btn-secondary btn-block" id="btnCopyBookingLink" style="justify-content:flex-start;">🔗 คัดลอกลิงก์สำหรับขอนัดหมาย</button>
+      <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
+      <button class="btn btn-secondary btn-block" id="btnMenuExport" style="justify-content:flex-start;">🖼️ ดาวน์โหลดตาราง (มุมมองปัจจุบัน)</button>
+      <button class="btn btn-secondary btn-block" id="btnOpenPoster" style="justify-content:flex-start;">🖨️ ดาวน์โหลดตารางปฏิบัติงาน (แบบทางการ)</button>
       <div style="border-top:1px solid var(--hairline-soft); margin:4px 0;"></div>
       <button class="btn btn-secondary btn-block" id="btnOpenSheetConnect" style="justify-content:flex-start;">🔗 เชื่อมต่อ Google Sheet</button>
       <button class="btn btn-secondary btn-block" id="btnSyncNow" style="justify-content:flex-start;">🔄 ซิงก์ตอนนี้</button>
@@ -208,6 +221,72 @@
       <button class="btn btn-secondary btn-block" id="btnInstallApp" style="justify-content:flex-start; display:none;">⬇️ ติดตั้งแอปลงหน้าจอหลัก</button>
       <button class="btn btn-danger btn-block" id="btnClearAll" style="justify-content:flex-start;">🗑️ ล้างข้อมูลทั้งหมด</button>
     </div>
+  </div>
+</div>
+
+<!-- ============ Pending approvals sheet ============ -->
+<div class="overlay" id="pendingOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pendingSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="pendingSheetTitle">คำขอนัดหมายที่รออนุมัติ</h2>
+      <button class="sheet-close" data-close="pendingOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="pendingList" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+</div>
+
+<!-- ============ Holiday manager sheet ============ -->
+<div class="overlay" id="holidayOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="holidaySheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="holidaySheetTitle">วันหยุดพิเศษ</h2>
+      <button class="sheet-close" data-close="holidayOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" style="margin-bottom:var(--md);">เสาร์-อาทิตย์ถูกตั้งเป็นวันหยุดให้อัตโนมัติ เพิ่มวันหยุดพิเศษอื่น ๆ (เช่น วันหยุดนักขัตฤกษ์) ได้ที่นี่ — ใช้แสดงในตารางปฏิบัติงานแบบทางการ</p>
+    <div id="holidayList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:var(--md);"></div>
+    <form id="holidayForm">
+      <div class="field-row">
+        <div class="field" style="flex:1.4;">
+          <label for="holidayDate">วันที่</label>
+          <input class="text-input" type="date" id="holidayDate" required>
+        </div>
+        <div class="field" style="flex:2;">
+          <label for="holidayLabel">ป้ายกำกับ</label>
+          <input class="text-input" id="holidayLabel" placeholder="วันหยุดราชการ" value="วันหยุดราชการ">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">+ เพิ่มวันหยุด</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Poster export sheet (official ตารางปฏิบัติงาน format) ============ -->
+<div class="overlay" id="posterOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="posterSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="posterSheetTitle">ดาวน์โหลดตารางปฏิบัติงาน</h2>
+      <button class="sheet-close" data-close="posterOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="posterForm">
+      <div class="field">
+        <label for="posterExec">ผู้บริหาร</label>
+        <select class="text-input" id="posterExec" required></select>
+      </div>
+      <div class="field">
+        <label for="posterWeekStart">สัปดาห์ที่เริ่มวันจันทร์</label>
+        <input class="text-input" type="date" id="posterWeekStart" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">🖨️ ดาวน์โหลดรูปภาพ</button>
+    </form>
   </div>
 </div>
 

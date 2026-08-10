@@ -19,7 +19,10 @@
 
 const EXEC_SHEET_NAME = 'Executives';
 const APPT_SHEET_NAME = 'Appointments';
+const HOLIDAY_SHEET_NAME = 'Holidays';
 const COLOR_ORDER = ['pink', 'teal', 'lavender', 'peach', 'ochre', 'cream'];
+const APPT_HEADERS = ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes', 'Status', 'RequestedBy', 'RequestedContact', 'RequestNote'];
+const HOLIDAY_HEADERS = ['Date', 'Label'];
 
 function getOrCreateSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -72,7 +75,8 @@ function formatTimeCell_(v) {
 
 function loadData_() {
   const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, ['ID', 'Name', 'Color']);
-  const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes']);
+  const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
+  const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
 
   const execData = readSheetObjects_(execSheet);
   ensureIds_(execSheet, execData.rows);
@@ -116,10 +120,32 @@ function loadData_() {
       title: String(r.Title || '').trim(),
       location: String(r.Location || '').trim(),
       notes: String(r.Notes || '').trim(),
+      status: (String(r.Status || '').trim().toLowerCase() || 'confirmed'),
+      requestedBy: String(r.RequestedBy || '').trim(),
+      requestedContact: String(r.RequestedContact || '').trim(),
+      requestNote: String(r.RequestNote || '').trim(),
     }))
     .filter(a => a.execName && a.date && a.title && a.start && a.end);
 
-  return { executives, appointments };
+  const holidayData = readSheetObjects_(holidaySheet);
+  const holidays = holidayData.rows
+    .map(r => ({ date: formatDateCell_(r.Date), label: String(r.Label || 'วันหยุดราชการ').trim() }))
+    .filter(h => h.date);
+
+  return { executives, appointments, holidays };
+}
+
+// Does this exec already have a CONFIRMED appointment overlapping [start,end) on `date`?
+function hasConfirmedConflict_(appointments, execName, date, start, end, excludeId) {
+  const toMin = (t) => { const p = String(t).split(':').map(Number); return p[0] * 60 + (p[1] || 0); };
+  const s = toMin(start), en = toMin(end);
+  return appointments.some(a =>
+    a.id !== excludeId &&
+    a.status === 'confirmed' &&
+    a.execName.toLowerCase() === String(execName).trim().toLowerCase() &&
+    a.date === date &&
+    toMin(a.start) < en && toMin(a.end) > s
+  );
 }
 
 function upsertRow_(sh, id, rowValues) {
@@ -131,11 +157,28 @@ function upsertRow_(sh, id, rowValues) {
     if (!rowValues[0]) rowValues[0] = Utilities.getUuid();
     sh.appendRow(rowValues);
   }
+  return rowValues[0];
 }
 
 function deleteRow_(sh, id) {
   const { rows } = readSheetObjects_(sh);
   const existing = rows.find(r => String(r.ID) === String(id));
+  if (existing) sh.deleteRow(existing.__row);
+}
+
+function upsertHolidayRow_(sh, date, label) {
+  const { rows } = readSheetObjects_(sh);
+  const existing = rows.find(r => formatDateCell_(r.Date) === date);
+  if (existing) {
+    sh.getRange(existing.__row, 1, 1, 2).setValues([[date, label]]);
+  } else {
+    sh.appendRow([date, label]);
+  }
+}
+
+function deleteHolidayRow_(sh, date) {
+  const { rows } = readSheetObjects_(sh);
+  const existing = rows.find(r => formatDateCell_(r.Date) === date);
   if (existing) sh.deleteRow(existing.__row);
 }
 
@@ -159,10 +202,12 @@ function doPost(e) {
     const payload = body.payload || {};
 
     const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, ['ID', 'Name', 'Color']);
-    const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes']);
+    const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
+    const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
 
     if (action === 'upsertExecutive') {
       upsertRow_(execSheet, payload.id, [payload.id, payload.name, payload.color]);
+
     } else if (action === 'deleteExecutive') {
       deleteRow_(execSheet, payload.id);
       const { rows } = readSheetObjects_(apptSheet);
@@ -170,10 +215,53 @@ function doPost(e) {
         .filter(r => String(r.ExecutiveName || '').trim().toLowerCase() === String(payload.name || '').trim().toLowerCase())
         .sort((a, b) => b.__row - a.__row)
         .forEach(r => apptSheet.deleteRow(r.__row));
+
     } else if (action === 'upsertAppointment') {
-      upsertRow_(apptSheet, payload.id, [payload.id, payload.execName, payload.date, payload.start, payload.end, payload.title, payload.location, payload.notes]);
+      // Used by the admin app — always confirmed, admin already resolved conflicts client-side.
+      upsertRow_(apptSheet, payload.id, [
+        payload.id, payload.execName, payload.date, payload.start, payload.end,
+        payload.title, payload.location || '', payload.notes || '',
+        'confirmed', payload.requestedBy || '', payload.requestedContact || '', payload.requestNote || '',
+      ]);
+
     } else if (action === 'deleteAppointment') {
       deleteRow_(apptSheet, payload.id);
+
+    } else if (action === 'requestAppointment') {
+      // Used by the public booking page — creates a PENDING request.
+      // Reject outright if it overlaps an already-CONFIRMED slot for that executive.
+      const { appointments } = loadData_();
+      if (hasConfirmedConflict_(appointments, payload.execName, payload.date, payload.start, payload.end, null)) {
+        return jsonOutput_({ ok: false, error: 'ช่วงเวลานี้ไม่ว่างแล้ว กรุณาเลือกเวลาอื่น' });
+      }
+      const newId = Utilities.getUuid();
+      apptSheet.appendRow([
+        newId, payload.execName, payload.date, payload.start, payload.end,
+        payload.title || 'ขอเข้าพบ', payload.location || '', payload.notes || '',
+        'pending', payload.requestedBy || '', payload.requestedContact || '', payload.requestNote || '',
+      ]);
+
+    } else if (action === 'approveAppointment') {
+      const { rows } = readSheetObjects_(apptSheet);
+      const row = rows.find(r => String(r.ID) === String(payload.id));
+      if (row) {
+        // Re-check conflicts at approval time, in case another slot was confirmed in the meantime.
+        const { appointments } = loadData_();
+        if (hasConfirmedConflict_(appointments, row.ExecutiveName, formatDateCell_(row.Date), formatTimeCell_(row.Start), formatTimeCell_(row.End), String(row.ID))) {
+          return jsonOutput_({ ok: false, error: 'ไม่สามารถอนุมัติได้ เวลานี้ถูกยืนยันให้นัดหมายอื่นไปแล้ว' });
+        }
+        apptSheet.getRange(row.__row, APPT_HEADERS.indexOf('Status') + 1).setValue('confirmed');
+      }
+
+    } else if (action === 'declineAppointment') {
+      deleteRow_(apptSheet, payload.id);
+
+    } else if (action === 'upsertHoliday') {
+      upsertHolidayRow_(holidaySheet, payload.date, payload.label || 'วันหยุดราชการ');
+
+    } else if (action === 'deleteHoliday') {
+      deleteHolidayRow_(holidaySheet, payload.date);
+
     } else {
       throw new Error('Unknown action: ' + action);
     }
