@@ -27,11 +27,10 @@
       if (raw) {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed.holidays)) parsed.holidays = [];
-        if (!Array.isArray(parsed.adminEmails)) parsed.adminEmails = [];
         return parsed;
       }
     } catch (e) { console.warn("Failed to load state", e); }
-    return { executives: [], appointments: [], holidays: [], adminEmails: [] };
+    return { executives: [], appointments: [], holidays: [] };
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -160,11 +159,7 @@
       ? data.holidays.map(h => ({ date: String(h.date || "").trim(), label: String(h.label || "วันหยุดราชการ").trim() })).filter(h => h.date)
       : [];
 
-    const adminEmails = Array.isArray(data.adminEmails)
-      ? data.adminEmails.map(e => String(e).trim().toLowerCase()).filter(Boolean)
-      : (state.adminEmails || []);
-
-    state = { executives, appointments, holidays, adminEmails };
+    state = { executives, appointments, holidays };
     if (activeFilters) activeFilters = null;
     saveState();
     setLastSync();
@@ -1112,53 +1107,7 @@
   });
 
   /* ============================================================
-     Admin emails (allow-list for the Google Sign-In gate)
-     ============================================================ */
-  function renderAdminEmailsList() {
-    const listEl = $("#adminEmailsList");
-    const emails = (state.adminEmails || []).slice().sort();
-    if (emails.length === 0) {
-      listEl.innerHTML = `<p class="body-sm" style="color:var(--muted);">ยังไม่มีอีเมลในรายการ — บัญชี Google แรกที่เข้าสู่ระบบจะกลายเป็นผู้ดูแลอัตโนมัติ</p>`;
-      return;
-    }
-    listEl.innerHTML = emails.map(email => `<div class="exec-row" data-email="${escapeHtml(email)}">
-      <span class="exec-name">${escapeHtml(email)}</span>
-      <button data-action="delete-admin-email" aria-label="ลบ">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>`).join("");
-    listEl.querySelectorAll("[data-action='delete-admin-email']").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const email = btn.closest("[data-email]").dataset.email;
-        if (state.adminEmails.length <= 1) { toast("ต้องมีอีเมลผู้ดูแลอย่างน้อย 1 รายการ"); return; }
-        if (!confirm(`ลบสิทธิ์เข้าถึงของ "${email}" หรือไม่?`)) return;
-        state.adminEmails = state.adminEmails.filter(e => e !== email);
-        saveState();
-        renderAdminEmailsList();
-        toast("ลบอีเมลแล้ว");
-        pushToSheet("deleteAdminEmail", { email });
-      });
-    });
-  }
-  $("#btnOpenAdminEmails").addEventListener("click", () => {
-    closeSheet("menuOverlay");
-    renderAdminEmailsList();
-    openSheet("adminEmailsOverlay");
-  });
-  $("#adminEmailsForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const email = $("#adminEmailInput").value.trim().toLowerCase();
-    if (!email) return;
-    if (!state.adminEmails.includes(email)) state.adminEmails.push(email);
-    saveState();
-    $("#adminEmailsForm").reset();
-    renderAdminEmailsList();
-    toast("เพิ่มอีเมลแล้ว");
-    pushToSheet("upsertAdminEmail", { email });
-  });
-
-  /* ============================================================
-     Browser notifications (new pending requests) + sign-out
+     Browser notifications (new pending requests)
      ============================================================ */
   $("#btnNotifPermission").addEventListener("click", async () => {
     if (typeof Notification === "undefined") { toast("เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน"); return; }
@@ -1166,11 +1115,6 @@
     if (Notification.permission === "denied") { toast("การแจ้งเตือนถูกปิดไว้ในตั้งค่าเบราว์เซอร์ กรุณาเปิดเองในตั้งค่าเว็บไซต์"); return; }
     const perm = await Notification.requestPermission();
     toast(perm === "granted" ? "เปิดการแจ้งเตือนแล้ว" : "ยังไม่ได้เปิดการแจ้งเตือน");
-  });
-
-  $("#btnSignOut").addEventListener("click", () => {
-    if (!confirm("ออกจากระบบหรือไม่?")) return;
-    if (window.ExecCalAuth) window.ExecCalAuth.signOut();
   });
 
   /* ============================================================

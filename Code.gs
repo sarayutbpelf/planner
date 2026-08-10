@@ -20,12 +20,10 @@
 const EXEC_SHEET_NAME = 'Executives';
 const APPT_SHEET_NAME = 'Appointments';
 const HOLIDAY_SHEET_NAME = 'Holidays';
-const ADMIN_SHEET_NAME = 'AdminEmails';
 const COLOR_ORDER = ['pink', 'teal', 'lavender', 'peach', 'ochre', 'cream'];
 const EXEC_HEADERS = ['ID', 'Name', 'Color', 'PersonName'];
 const APPT_HEADERS = ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes', 'Status', 'RequestedBy', 'RequestedContact', 'RequestNote'];
 const HOLIDAY_HEADERS = ['Date', 'Label'];
-const ADMIN_HEADERS = ['Email'];
 
 function getOrCreateSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -140,13 +138,7 @@ function loadData_() {
     .map(r => ({ date: formatDateCell_(r.Date), label: String(r.Label || 'วันหยุดราชการ').trim() }))
     .filter(h => h.date);
 
-  const adminSheet = getOrCreateSheet_(ADMIN_SHEET_NAME, ADMIN_HEADERS);
-  const adminData = readSheetObjects_(adminSheet);
-  const adminEmails = adminData.rows
-    .map(r => String(r.Email || '').trim().toLowerCase())
-    .filter(Boolean);
-
-  return { executives, appointments, holidays, adminEmails };
+  return { executives, appointments, holidays };
 }
 
 // The "person key" for an executive/position: their real human name if set,
@@ -217,21 +209,6 @@ function deleteHolidayRow_(sh, date) {
   if (existing) sh.deleteRow(existing.__row);
 }
 
-function upsertAdminEmailRow_(sh, email) {
-  const clean = String(email || '').trim().toLowerCase();
-  if (!clean) return;
-  const { rows } = readSheetObjects_(sh);
-  const existing = rows.find(r => String(r.Email || '').trim().toLowerCase() === clean);
-  if (!existing) sh.appendRow([clean]);
-}
-
-function deleteAdminEmailRow_(sh, email) {
-  const clean = String(email || '').trim().toLowerCase();
-  const { rows } = readSheetObjects_(sh);
-  const existing = rows.find(r => String(r.Email || '').trim().toLowerCase() === clean);
-  if (existing) sh.deleteRow(existing.__row);
-}
-
 function jsonOutput_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -254,7 +231,6 @@ function doPost(e) {
     const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, EXEC_HEADERS);
     const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
     const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
-    const adminSheet = getOrCreateSheet_(ADMIN_SHEET_NAME, ADMIN_HEADERS);
 
     if (action === 'upsertExecutive') {
       upsertRow_(execSheet, payload.id, [payload.id, payload.name, payload.color, payload.person || '']);
@@ -315,12 +291,6 @@ function doPost(e) {
 
     } else if (action === 'deleteHoliday') {
       deleteHolidayRow_(holidaySheet, payload.date);
-
-    } else if (action === 'upsertAdminEmail') {
-      upsertAdminEmailRow_(adminSheet, payload.email);
-
-    } else if (action === 'deleteAdminEmail') {
-      deleteAdminEmailRow_(adminSheet, payload.email);
 
     } else {
       throw new Error('Unknown action: ' + action);

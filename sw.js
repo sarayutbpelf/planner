@@ -7,7 +7,6 @@ const APP_SHELL = [
   "./booking.html",
   "./style.css",
   "./app.js",
-  "./auth.js",
   "./booking.js",
   "./manifest.json",
   "./icons/icon-192.png",
