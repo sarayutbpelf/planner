@@ -9,6 +9,8 @@
 
   const $ = (sel) => document.querySelector(sel);
   const GAS_URL_KEY = "execcal_gas_url";
+  const GAS_DISCONNECTED_KEY = "execcal_gas_disconnected";
+  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzFVqSFyFGe0KXfFMNHGoroYFPGX_XNwTJfEd6GfOmAo92qQ7COBGxKrhgI26jw6wHyMg/exec";
 
   const DOW_FULL = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
   const MONTH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
@@ -23,6 +25,7 @@
   function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function startOfWeek(d) { const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
   function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+  function toMinutes(hhmm) { const [h, m] = String(hhmm).split(":").map(Number); return h * 60 + (m || 0); }
   function normalizeColor(c) {
     const k = String(c || "").trim().toLowerCase();
     return COLOR_ORDER.includes(k) ? k : null;
@@ -34,9 +37,10 @@
       if (fromQuery) return fromQuery.trim();
     } catch (e) { /* ignore */ }
     try {
-      return (localStorage.getItem(GAS_URL_KEY) || "").trim();
+      if (localStorage.getItem(GAS_DISCONNECTED_KEY) === "1") return "";
+      return (localStorage.getItem(GAS_URL_KEY) || DEFAULT_GAS_URL).trim();
     } catch (e) {
-      return "";
+      return DEFAULT_GAS_URL;
     }
   }
 
@@ -58,24 +62,71 @@
     $("#landingEmpty").style.display = "none";
   }
 
+  const PX_PER_HOUR = 56;
+  const MIN_EVENT_HEIGHT = 30;
+
+  // Pack overlapping events into side-by-side columns (like a real calendar day view)
+  // so staggered/overlapping appointments never hide each other.
+  function layoutColumns(items) {
+    const sorted = items.slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    const colEndTimes = [];
+    const placed = sorted.map(item => {
+      const s = toMinutes(item.start), e = toMinutes(item.end);
+      let col = colEndTimes.findIndex(endT => s >= endT);
+      if (col === -1) { col = colEndTimes.length; colEndTimes.push(e); }
+      else { colEndTimes[col] = e; }
+      return Object.assign({}, item, { col });
+    });
+    return { placed, totalCols: colEndTimes.length || 1 };
+  }
+
+  function dayTimelineHTML(items, execById) {
+    if (items.length === 0) return `<div class="day-empty">ไม่มีนัดหมาย</div>`;
+
+    // Default business-hours window, widened automatically if any appointment falls outside it.
+    let rangeStart = 8 * 60, rangeEnd = 18 * 60;
+    items.forEach(a => {
+      rangeStart = Math.min(rangeStart, Math.floor(toMinutes(a.start) / 60) * 60);
+      rangeEnd = Math.max(rangeEnd, Math.ceil(toMinutes(a.end) / 60) * 60);
+    });
+    const hourCount = (rangeEnd - rangeStart) / 60;
+    const totalHeight = hourCount * PX_PER_HOUR;
+
+    let hoursHTML = "", gridHTML = "";
+    for (let i = 0; i <= hourCount; i++) {
+      const top = i * PX_PER_HOUR;
+      const hh = String(Math.floor((rangeStart + i * 60) / 60) % 24).padStart(2, "0");
+      hoursHTML += `<div class="day-timeline-hour-label" style="top:${top}px;">${hh}:00</div>`;
+      gridHTML += `<div class="day-timeline-gridline" style="top:${top}px;"></div>`;
+    }
+
+    const { placed, totalCols } = layoutColumns(items);
+    const eventsHTML = placed.map(a => {
+      const ex = execById(a.execId);
+      const cls = "c-" + (ex ? ex.colorKey : "cream");
+      const s = toMinutes(a.start), e = toMinutes(a.end);
+      const top = ((s - rangeStart) / 60) * PX_PER_HOUR;
+      const height = Math.max(((e - s) / 60) * PX_PER_HOUR, MIN_EVENT_HEIGHT);
+      const widthPct = 100 / totalCols;
+      const leftPct = a.col * widthPct;
+      return `<div class="day-timeline-event ${cls}" style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px);">
+        <span class="dt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
+        <span class="dt-title">${escapeHtml(a.title)}</span>
+        ${ex ? `<span class="dt-exec">${escapeHtml(ex.name)}</span>` : ""}
+      </div>`;
+    }).join("");
+
+    return `<div class="day-timeline" style="height:${totalHeight}px;">
+      <div class="day-timeline-hours" style="height:${totalHeight}px;">${hoursHTML}</div>
+      <div class="day-timeline-track" style="height:${totalHeight}px;">${gridHTML}${eventsHTML}</div>
+    </div>`;
+  }
+
   function renderWeekLabel(start, end) {
     const label = start.getMonth() === end.getMonth()
       ? `${start.getDate()}–${end.getDate()} ${MONTH_FULL[start.getMonth()]} ${start.getFullYear() + 543}`
       : `${start.getDate()} ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear() + 543}`;
     $("#landingWeekLabel").textContent = label;
-  }
-
-  function apptCardHTML(a, execById) {
-    const ex = execById(a.execId);
-    const cls = "c-" + (ex ? ex.colorKey : "cream");
-    return `<div class="appt-card ${cls}">
-      <span class="appt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
-      <span class="appt-title">${escapeHtml(a.title)}</span>
-      <span class="appt-meta">
-        ${ex ? `<span class="appt-exec">${escapeHtml(ex.name)}</span>` : ""}
-        ${a.location ? `<span>📍 ${escapeHtml(a.location)}</span>` : ""}
-      </span>
-    </div>`;
   }
 
   function renderWeek(executives, appointments) {
@@ -106,8 +157,8 @@
           <span class="dow">${DOW_FULL[d.getDay()]}</span>
           <span class="dom">${d.getDate()} ${MONTH_SHORT[d.getMonth()]}</span>
         </div>
-        <div class="day-card-body">
-          ${items.length ? items.map(a => apptCardHTML(a, execById)).join("") : `<div class="day-empty">ไม่มีนัดหมาย</div>`}
+        <div class="day-card-body" style="${items.length ? "padding:0;" : ""}">
+          ${dayTimelineHTML(items, execById)}
         </div>
       </div>`;
     }).join("");
