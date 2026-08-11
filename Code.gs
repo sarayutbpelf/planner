@@ -50,16 +50,55 @@ function getOrCreateSheet_(name, headers) {
   return sh;
 }
 
+// Reads the sheet's actual header row (row 1) as an array of trimmed strings.
+function headerRowOf_(sh) {
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  return sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+}
+
 // Finds the 1-indexed column number for a header name by reading the sheet's
 // actual header row — rather than trusting a hardcoded array position, which
 // would be wrong if the real sheet's columns ever end up in a different order
 // than the APPT_HEADERS/EXEC_HEADERS constants (e.g. an older sheet migrated
 // via getOrCreateSheet_ above, or someone manually reordered columns).
 function columnIndexOf_(sh, headerName) {
-  const lastCol = Math.max(sh.getLastColumn(), 1);
-  const row = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
-  const idx = row.indexOf(headerName);
+  const idx = headerRowOf_(sh).indexOf(headerName);
   return idx === -1 ? -1 : idx + 1;
+}
+
+// Appends a new row, placing each field into the column matching its header
+// name (read from the sheet's actual header row) — NEVER assumes a fixed
+// array order. This is what makes writes safe even when a sheet's real
+// columns have drifted from the EXEC_HEADERS/APPT_HEADERS constants.
+function appendRowByHeader_(sh, dataByHeader) {
+  const headers = headerRowOf_(sh);
+  const row = headers.map(h => (h in dataByHeader) ? dataByHeader[h] : '');
+  sh.appendRow(row);
+}
+
+// Updates specific fields of an existing row (by its 1-indexed sheet row
+// number), placing each field into the column matching its header name.
+// Fields whose header isn't found are silently skipped (not written).
+function updateRowByHeader_(sh, rowNumber, dataByHeader) {
+  const headers = headerRowOf_(sh);
+  Object.keys(dataByHeader).forEach(key => {
+    const idx = headers.indexOf(key);
+    if (idx !== -1) sh.getRange(rowNumber, idx + 1).setValue(dataByHeader[key]);
+  });
+}
+
+// Upserts a row by ID: updates it in place if found, otherwise appends a new
+// one (generating an ID if none was given). Returns the ID used.
+function upsertRowByHeader_(sh, id, dataByHeader) {
+  const { rows } = readSheetObjects_(sh);
+  const existing = id ? rows.find(r => String(r.ID) === String(id)) : null;
+  if (existing) {
+    updateRowByHeader_(sh, existing.__row, dataByHeader);
+    return String(existing.ID);
+  }
+  const finalId = dataByHeader.ID || Utilities.getUuid();
+  appendRowByHeader_(sh, Object.assign({}, dataByHeader, { ID: finalId }));
+  return finalId;
 }
 
 function readSheetObjects_(sh) {
@@ -122,7 +161,6 @@ function loadData_() {
   // Auto-create executives that were typed directly into the Appointments
   // sheet (ExecutiveName) but don't exist yet in the Executives sheet.
   const nameSet = new Set(executives.map(e => e.name.toLowerCase()));
-  const newExecRows = [];
   apptData.rows.forEach(r => {
     const nm = String(r.ExecutiveName || '').trim();
     if (nm && !nameSet.has(nm.toLowerCase())) {
@@ -130,12 +168,9 @@ function loadData_() {
       const id = Utilities.getUuid();
       executives.push({ id, name: nm, color, person: '' });
       nameSet.add(nm.toLowerCase());
-      newExecRows.push([id, nm, color, '']);
+      appendRowByHeader_(execSheet, { ID: id, Name: nm, Color: color, PersonName: '' });
     }
   });
-  if (newExecRows.length) {
-    execSheet.getRange(execSheet.getLastRow() + 1, 1, newExecRows.length, 4).setValues(newExecRows);
-  }
   // Fill in any blank color cells so the app always has a color to render.
   executives.forEach((e, i) => {
     if (!e.color) e.color = COLOR_ORDER[i % COLOR_ORDER.length];
@@ -206,18 +241,6 @@ function hasConfirmedConflict_(appointments, executives, execName, date, start, 
   ) || null;
 }
 
-function upsertRow_(sh, id, rowValues) {
-  const { rows } = readSheetObjects_(sh);
-  const existing = id ? rows.find(r => String(r.ID) === String(id)) : null;
-  if (existing) {
-    sh.getRange(existing.__row, 1, 1, rowValues.length).setValues([rowValues]);
-  } else {
-    if (!rowValues[0]) rowValues[0] = Utilities.getUuid();
-    sh.appendRow(rowValues);
-  }
-  return rowValues[0];
-}
-
 function deleteRow_(sh, id) {
   const { rows } = readSheetObjects_(sh);
   const existing = rows.find(r => String(r.ID) === String(id));
@@ -229,9 +252,9 @@ function upsertHolidayRow_(sh, date, label) {
   const { rows } = readSheetObjects_(sh);
   const existing = rows.find(r => formatDateCell_(r.Date) === date);
   if (existing) {
-    sh.getRange(existing.__row, 1, 1, 2).setValues([[date, label]]);
+    updateRowByHeader_(sh, existing.__row, { Date: date, Label: label });
   } else {
-    sh.appendRow([date, label]);
+    appendRowByHeader_(sh, { Date: date, Label: label });
   }
 }
 
@@ -263,9 +286,13 @@ function doPost(e) {
     const execSheet = getOrCreateSheet_(EXEC_SHEET_NAME, EXEC_HEADERS);
     const apptSheet = getOrCreateSheet_(APPT_SHEET_NAME, APPT_HEADERS);
     const holidaySheet = getOrCreateSheet_(HOLIDAY_SHEET_NAME, HOLIDAY_HEADERS);
+    // Commit any header-column migration from getOrCreateSheet_ above before
+    // anything below reads the header row back (appendRowByHeader_/
+    // updateRowByHeader_/columnIndexOf_ all depend on seeing it fresh).
+    SpreadsheetApp.flush();
 
     if (action === 'upsertExecutive') {
-      upsertRow_(execSheet, payload.id, [payload.id, payload.name, payload.color, payload.person || '']);
+      upsertRowByHeader_(execSheet, payload.id, { ID: payload.id, Name: payload.name, Color: payload.color, PersonName: payload.person || '' });
 
     } else if (action === 'deleteExecutive') {
       deleteRow_(execSheet, payload.id);
@@ -277,11 +304,11 @@ function doPost(e) {
 
     } else if (action === 'upsertAppointment') {
       // Used by the admin app — always confirmed, admin already resolved conflicts client-side.
-      upsertRow_(apptSheet, payload.id, [
-        payload.id, payload.execName, payload.date, payload.start, payload.end,
-        payload.title, payload.location || '', payload.notes || '',
-        'confirmed', payload.requestedBy || '', payload.requestedContact || '', payload.requestNote || '',
-      ]);
+      upsertRowByHeader_(apptSheet, payload.id, {
+        ID: payload.id, ExecutiveName: payload.execName, Date: payload.date, Start: payload.start, End: payload.end,
+        Title: payload.title, Location: payload.location || '', Notes: payload.notes || '',
+        Status: 'confirmed', RequestedBy: payload.requestedBy || '', RequestedContact: payload.requestedContact || '', RequestNote: payload.requestNote || '',
+      });
 
     } else if (action === 'deleteAppointment') {
       deleteRow_(apptSheet, payload.id);
@@ -314,11 +341,11 @@ function doPost(e) {
       );
 
       const newId = Utilities.getUuid();
-      apptSheet.appendRow([
-        newId, payload.execName, payload.date, payload.start, payload.end,
-        payload.title || 'ขอเข้าพบ', payload.location || '', payload.notes || '',
-        'pending', payload.requestedBy || '', payload.requestedContact || '', payload.requestNote || '',
-      ]);
+      appendRowByHeader_(apptSheet, {
+        ID: newId, ExecutiveName: payload.execName, Date: payload.date, Start: payload.start, End: payload.end,
+        Title: payload.title || 'ขอเข้าพบ', Location: payload.location || '', Notes: payload.notes || '',
+        Status: 'pending', RequestedBy: payload.requestedBy || '', RequestedContact: payload.requestedContact || '', RequestNote: payload.requestNote || '',
+      });
 
       const data = loadData_();
       const response = Object.assign({ ok: true }, data);
@@ -347,11 +374,10 @@ function doPost(e) {
           conflictDetail: { title: conflict.title, execName: conflict.execName, start: conflict.start, end: conflict.end, status: conflict.status },
         });
       }
-      const statusCol = columnIndexOf_(apptSheet, 'Status');
-      if (statusCol === -1) {
+      if (columnIndexOf_(apptSheet, 'Status') === -1) {
         return jsonOutput_({ ok: false, error: "ไม่พบคอลัมน์ 'Status' ในชีต Appointments — โปรดตรวจสอบว่าแถวหัวตาราง (แถวที่ 1) มีคอลัมน์ชื่อ Status อยู่" });
       }
-      apptSheet.getRange(row.__row, statusCol).setValue('confirmed');
+      updateRowByHeader_(apptSheet, row.__row, { Status: 'confirmed' });
 
     } else if (action === 'declineAppointment') {
       const deleted = deleteRow_(apptSheet, payload.id);

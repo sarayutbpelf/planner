@@ -203,17 +203,6 @@
     }
   }
 
-  // Carry the connected Google Sheet link into the booking card automatically,
-  // so it works out of the box on the admin's own device.
-  (function wireBookingLink() {
-    try {
-      const gas = getGasUrl();
-      if (gas) {
-        $("#bookingLink").href = "booking.html?gas=" + encodeURIComponent(gas);
-      }
-    } catch (e) { /* booking link still works via a shared link with ?gas= already in it */ }
-  })();
-
   init();
 
   /* Service worker: register + auto-reload once a newer version takes over. */

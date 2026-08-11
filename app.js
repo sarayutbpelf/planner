@@ -303,7 +303,6 @@
   const weekGrid = $("#weekGrid");
   const monthGrid = $("#monthGrid");
   const globalEmpty = $("#globalEmpty");
-  const exportTitle = $("#exportTitle");
   const toastEl = $("#toast");
 
   /* ---------- toast ---------- */
@@ -918,44 +917,9 @@
   });
 
   /* ============================================================
-     Menu sheet: export JPEG / JSON backup / clear data
+     Menu sheet: JSON backup / clear data
      ============================================================ */
   $("#btnMenu").addEventListener("click", () => openSheet("menuOverlay"));
-  $("#btnMenuExport").addEventListener("click", () => { closeSheet("menuOverlay"); exportJPEG(); });
-  $("#btnExport").addEventListener("click", exportJPEG);
-
-  async function exportJPEG() {
-    if (typeof html2canvas === "undefined") {
-      toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้ กรุณาตรวจสอบอินเทอร์เน็ต");
-      return;
-    }
-    toast("กำลังสร้างรูปภาพ...");
-    const root = $("#exportRoot");
-    exportTitle.style.display = "block";
-    exportTitle.innerHTML = `<div class="display-sm" style="font-size:22px;">ตารางนัดหมายผู้บริหาร</div>
-      <div class="body-sm" style="margin-top:4px;">${periodLabel.textContent}</div>`;
-    root.style.padding = "20px";
-    root.style.background = "#fffaf0";
-    try {
-      const canvas = await html2canvas(root, {
-        scale: 3,
-        backgroundColor: "#fffaf0",
-        useCORS: true,
-      });
-      const link = document.createElement("a");
-      const fname = `execcal-${view}-${fmtISO(anchor)}.jpg`;
-      link.download = fname;
-      link.href = canvas.toDataURL("image/jpeg", 0.95);
-      link.click();
-      toast("ดาวน์โหลดรูปภาพแล้ว");
-    } catch (err) {
-      console.error(err);
-      toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
-    } finally {
-      exportTitle.style.display = "none";
-      root.style.padding = "";
-    }
-  }
 
   $("#btnExportJSON").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
@@ -1300,12 +1264,14 @@
 
   function openPosterSheet() {
     if (state.executives.length === 0) { toast("กรุณาเพิ่มผู้บริหารก่อน"); closeSheet("menuOverlay"); openExecSheet(); return; }
-    $("#posterExec").innerHTML = state.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+    const options = state.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+    $("#posterExec").innerHTML = `<option value="ALL">📋 ทุกตำแหน่ง (รวมทุกคน)</option>` + options;
     $("#posterWeekStart").value = fmtISO(mondayOf(anchor));
     closeSheet("menuOverlay");
     openSheet("posterOverlay");
   }
   $("#btnOpenPoster").addEventListener("click", openPosterSheet);
+  $("#btnExport").addEventListener("click", openPosterSheet);
 
   $("#posterForm").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1316,8 +1282,9 @@
   });
 
   async function generatePoster(execId, monday) {
-    const ex = execById(execId);
-    if (!ex) return;
+    const isAll = execId === "ALL";
+    const ex = isAll ? null : execById(execId);
+    if (!isAll && !ex) return;
     if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
     toast("กำลังสร้างตารางปฏิบัติงาน...");
 
@@ -1326,6 +1293,7 @@
     const rangeLabel = monday.getMonth() === sunday.getMonth()
       ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
       : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+    const posterTitle = isAll ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน" : `ตารางปฏิบัติงาน ${ex.name}`;
 
     // Reuse the exact same visual language as the live calendar (same CSS
     // classes/tokens) so the exported image matches the website 1:1.
@@ -1354,7 +1322,9 @@
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso);
-      const dayAppts = state.appointments.filter(a => a.execId === execId && a.date === iso && a.status === "confirmed").sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+      const dayAppts = state.appointments
+        .filter(a => (isAll || a.execId === execId) && a.date === iso && a.status === "confirmed")
+        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
       const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
       const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
       const isToday = isSameDay(date, today);
@@ -1375,7 +1345,7 @@
       <div style="text-align:center; margin-bottom:28px;">
         <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
           <div style="width:52px; height:52px; border-radius:var(--r-lg); background:var(--primary); color:var(--on-primary); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; flex-shrink:0;">EC</div>
-          <h1 class="display-sm" style="margin:0; font-size:32px;">ตารางปฏิบัติงาน ${escapeHtml(ex.name)}</h1>
+          <h1 class="display-sm" style="margin:0; font-size:32px;">${escapeHtml(posterTitle)}</h1>
         </div>
         <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
@@ -1388,7 +1358,7 @@
     try {
       const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
       const link = document.createElement("a");
-      link.download = `ตารางปฏิบัติงาน-${ex.name}-${fmtISO(monday)}.jpg`;
+      link.download = `${posterTitle}-${fmtISO(monday)}.jpg`;
       link.href = canvas.toDataURL("image/jpeg", 0.95);
       link.click();
       toast("ดาวน์โหลดตารางปฏิบัติงานแล้ว");
