@@ -20,6 +20,15 @@
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
+
+  const toastEl = $("#toast");
+  let toastTimer = null;
+  function toast(msg, durationMs) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), durationMs || 2400);
+  }
   function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
   function fmtISO(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
   function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -140,6 +149,8 @@
     const sunday = addDays(monday, 6);
     renderWeekLabel(monday, sunday);
 
+    lastData = { monday, executives, appointments, holidays };
+
     const totalAppts = appointments.filter(a => {
       const d = new Date(a.date + "T00:00:00");
       return d >= monday && d <= sunday;
@@ -147,12 +158,128 @@
 
     if (totalAppts.length === 0 && holidays.every(h => { const d = new Date(h.date + "T00:00:00"); return !(d >= monday && d <= sunday); })) {
       showEmpty("สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว");
+      $("#btnLandingDownload").style.display = "none";
       return;
     }
 
     $("#landingWeekList").innerHTML = scheduleTableHTML(monday, executives, appointments, holidays);
     showList();
+    $("#btnLandingDownload").style.display = "flex";
   }
+
+  // Landscape poster download — same 90°-transposed layout as the official
+  // poster in admin.html (days across the top, เช้า/บ่าย as the two data rows),
+  // built from whatever is currently on screen (all executives, current week).
+  let lastData = null;
+  async function downloadPoster() {
+    if (!lastData) return;
+    if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
+    toast("กำลังสร้างตารางปฏิบัติงาน...");
+
+    const { monday, executives, appointments, holidays } = lastData;
+    const today = startOfDay(new Date());
+    const sunday = addDays(monday, 6);
+    const rangeLabel = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
+      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+    const posterTitle = "ตารางปฏิบัติงานผู้บริหารทุกท่าน";
+    const execById = (id) => executives.find(e => e.id === id);
+
+    const wrap = document.createElement("div");
+    wrap.style.position = "fixed";
+    wrap.style.left = "-9999px";
+    wrap.style.top = "0";
+    wrap.style.width = "1500px";
+    wrap.style.background = "var(--canvas)";
+    wrap.style.padding = "40px";
+    wrap.style.boxSizing = "border-box";
+
+    function apptChipHTML(a) {
+      const ex = execById(a.execId);
+      const cls = "c-" + (ex ? ex.colorKey : "cream");
+      const execLabel = ex ? `<small>${escapeHtml(ex.name)}</small>` : "";
+      return `<div class="st-chip ${cls}" style="width:100%; box-sizing:border-box;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
+    }
+    function cellHTML(list, holiday) {
+      if (holiday) return `<div class="st-holiday-text" style="justify-content:center; text-align:center;">${escapeHtml(holiday.label)}</div>`;
+      if (list.length === 0) return "";
+      return list.map(apptChipHTML).join("");
+    }
+
+    const dayCols = TABLE_DOW.map((d) => {
+      const dayOffset = d.key === 0 ? 6 : d.key - 1;
+      const date = addDays(monday, dayOffset);
+      const iso = fmtISO(date);
+      const holiday = holidayFor(iso, holidays);
+      const dayAppts = appointments.filter(a => a.date === iso).sort((a, b) => a.start.localeCompare(b.start));
+      return {
+        label: d.label.replace("วัน", ""),
+        dateLabel: `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}`,
+        isToday: isSameDay(date, today),
+        holiday,
+        morning: dayAppts.filter(a => toMinutes(a.start) < 12 * 60),
+        afternoon: dayAppts.filter(a => toMinutes(a.start) >= 12 * 60),
+      };
+    });
+
+    const gridCols = `110px repeat(7, 1fr)`;
+    let rowsHTML = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline); border-radius:var(--r-lg) var(--r-lg) 0 0; overflow:hidden;">`;
+    rowsHTML += `<div class="st-head" style="text-align:center;"></div>`;
+    dayCols.forEach(d => {
+      rowsHTML += `<div class="st-head" style="text-align:center; background:${d.isToday ? "var(--ink)" : "var(--primary)"};">${d.label}<br><span style="font-weight:500; opacity:.75; font-size:11px;">${d.dateLabel}</span></div>`;
+    });
+    rowsHTML += `</div>`;
+
+    function dataRow(rowLabel, key, alt) {
+      let html = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline);">`;
+      html += `<div class="st-day${alt ? " alt" : ""}" style="justify-content:center; text-align:center;">${rowLabel}</div>`;
+      dayCols.forEach(d => {
+        html += `<div class="st-cell${alt ? " alt" : ""}" style="flex-direction:column; align-items:stretch; min-height:64px;">${cellHTML(d[key], d.holiday)}</div>`;
+      });
+      html += `</div>`;
+      return html;
+    }
+    rowsHTML += dataRow("ช่วงเช้า", "morning", false);
+    rowsHTML += dataRow("ช่วงบ่าย", "afternoon", true);
+    rowsHTML = `<div style="border-radius:var(--r-lg); overflow:hidden;">${rowsHTML}</div>`;
+
+    wrap.innerHTML = `
+      <div style="text-align:center; margin-bottom:28px;">
+        <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
+          <img src="assets/logo.png" alt="" style="width:52px; height:52px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
+          <h1 class="display-sm" style="margin:0; font-size:32px;">${escapeHtml(posterTitle)}</h1>
+        </div>
+        <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
+      </div>
+      ${rowsHTML}
+      <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
+        <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
+      </div>
+    `;
+    document.body.appendChild(wrap);
+    try {
+      const logoImg = wrap.querySelector("img");
+      if (logoImg && !logoImg.complete) {
+        await new Promise((resolve) => {
+          logoImg.addEventListener("load", resolve, { once: true });
+          logoImg.addEventListener("error", resolve, { once: true });
+          setTimeout(resolve, 1500);
+        });
+      }
+      const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
+      const link = document.createElement("a");
+      link.download = `${posterTitle}-${fmtISO(monday)}.jpg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.95);
+      link.click();
+      toast("ดาวน์โหลดตารางปฏิบัติงานแล้ว");
+    } catch (err) {
+      console.error(err);
+      toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
+    } finally {
+      document.body.removeChild(wrap);
+    }
+  }
+  $("#btnLandingDownload").addEventListener("click", downloadPoster);
 
   async function init() {
     const gasUrl = getGasUrl();

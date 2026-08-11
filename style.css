@@ -189,6 +189,7 @@ a{color:inherit;}
 .schedule-table .st-head{
   background:var(--primary); color:var(--on-primary);
   padding:10px 12px; font-size:12px; font-weight:600; letter-spacing:.3px;
+  text-align:center;
 }
 .schedule-table .st-day{
   background:var(--canvas); padding:10px 12px; font-size:13px; font-weight:600;

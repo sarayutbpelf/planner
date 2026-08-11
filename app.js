@@ -1395,11 +1395,14 @@
 
     // Reuse the exact same visual language as the live calendar (same CSS
     // classes/tokens) so the exported image matches the website 1:1.
+    // Landscape orientation: days run ACROSS the top as columns, with เช้า/บ่าย
+    // as the two data rows underneath — this is a 90° transpose of the on-screen
+    // table (which stays portrait/vertical; only this downloadable image changes).
     const wrap = document.createElement("div");
     wrap.style.position = "fixed";
     wrap.style.left = "-9999px";
     wrap.style.top = "0";
-    wrap.style.width = "860px";
+    wrap.style.width = "1500px";
     wrap.style.background = "var(--canvas)";
     wrap.style.padding = "40px";
     wrap.style.boxSizing = "border-box";
@@ -1408,17 +1411,16 @@
       const ex = execById(a.execId);
       const cls = "c-" + (ex ? ex.colorKey : "cream");
       const execLabel = isAll && ex ? `<small>${escapeHtml(ex.name)}</small>` : "";
-      return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)} ${escapeHtml(a.title)}${execLabel}</div>`;
+      return `<div class="st-chip ${cls}" style="width:100%; box-sizing:border-box;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
     }
 
     function cellHTML(list, holiday) {
-      if (holiday) return `<div class="st-holiday-text" style="font-size:13px;">${escapeHtml(holiday.label)}</div>`;
+      if (holiday) return `<div class="st-holiday-text" style="justify-content:center; text-align:center;">${escapeHtml(holiday.label)}</div>`;
       if (list.length === 0) return "";
       return list.map(apptChipHTML).join("");
     }
 
-    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
-    POSTER_DOW.forEach((d, i) => {
+    const dayCols = POSTER_DOW.map((d) => {
       const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
@@ -1426,15 +1428,36 @@
       const dayAppts = state.appointments
         .filter(a => (isAll || a.execId === execId) && a.date === iso && a.status === "confirmed")
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-      const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
-      const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
-      const isToday = isSameDay(date, today);
-      const alt = i % 2 === 1 ? " alt" : "";
-
-      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:15px; padding:14px 16px;">${d.label}<br><span style="font-size:12px; font-weight:500; opacity:.7;">${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}</span></div>`;
-      rowsHTML += `<div class="st-cell${alt}" style="padding:12px;">${cellHTML(morning, holiday)}</div>`;
-      rowsHTML += `<div class="st-cell${alt}" style="padding:12px;">${cellHTML(afternoon, holiday)}</div>`;
+      return {
+        label: d.label.replace("วัน", ""),
+        dateLabel: `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}`,
+        isToday: isSameDay(date, today),
+        holiday,
+        morning: dayAppts.filter(a => toMinutes(a.start) < 12 * 60),
+        afternoon: dayAppts.filter(a => toMinutes(a.start) >= 12 * 60),
+      };
     });
+
+    const gridCols = `110px repeat(7, 1fr)`;
+    let rowsHTML = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline); border-radius:var(--r-lg) var(--r-lg) 0 0; overflow:hidden;">`;
+    rowsHTML += `<div class="st-head" style="text-align:center;"></div>`;
+    dayCols.forEach(d => {
+      rowsHTML += `<div class="st-head" style="text-align:center; background:${d.isToday ? "var(--ink)" : "var(--primary)"};">${d.label}<br><span style="font-weight:500; opacity:.75; font-size:11px;">${d.dateLabel}</span></div>`;
+    });
+    rowsHTML += `</div>`;
+
+    function dataRow(rowLabel, key, alt) {
+      let html = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline);">`;
+      html += `<div class="st-day${alt ? " alt" : ""}" style="justify-content:center; text-align:center;">${rowLabel}</div>`;
+      dayCols.forEach(d => {
+        html += `<div class="st-cell${alt ? " alt" : ""}" style="flex-direction:column; align-items:stretch; min-height:64px;">${cellHTML(d[key], d.holiday)}</div>`;
+      });
+      html += `</div>`;
+      return html;
+    }
+    rowsHTML += dataRow("ช่วงเช้า", "morning", false);
+    rowsHTML += dataRow("ช่วงบ่าย", "afternoon", true);
+    rowsHTML = `<div style="border-radius:var(--r-lg); overflow:hidden;">${rowsHTML}</div>`;
 
     wrap.innerHTML = `
       <div style="text-align:center; margin-bottom:28px;">
@@ -1444,7 +1467,7 @@
         </div>
         <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
-      <div class="schedule-table" style="min-width:0; grid-template-columns:130px 1fr 1fr;">${rowsHTML}</div>
+      ${rowsHTML}
       <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
         <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>
