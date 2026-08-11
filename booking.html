@@ -107,6 +107,25 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ============ Conflict override confirmation popup ============ -->
+<div class="overlay" id="conflictConfirmOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="conflictConfirmTitle" style="max-width:420px;">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="conflictConfirmTitle">⚠️ เวลาซ้อนทับกัน</h2>
+      <button class="sheet-close" data-close="conflictConfirmOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" id="conflictConfirmMessage" style="white-space:pre-line;"></p>
+    <p class="body-sm" style="color:var(--muted); margin-top:var(--sm);">หากยังต้องการส่งคำขอนี้ต่อ ให้กด "ยืนยันส่งคำขอ" — ผู้บริหารจะเป็นผู้พิจารณาว่าจะรับคำขอใด</p>
+    <div style="display:flex; gap:10px; margin-top:var(--lg);">
+      <button class="btn btn-secondary btn-block" id="btnConflictCancel">เลือกเวลาอื่น</button>
+      <button class="btn btn-primary btn-block" id="btnConflictConfirm">✓ ยืนยันส่งคำขอ</button>
+    </div>
+  </div>
+</div>
 <script src="booking.js"></script>
 </body>
 </html>

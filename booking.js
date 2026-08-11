@@ -19,12 +19,36 @@
 
   const toastEl = $("#toast");
   let toastTimer = null;
-  function toast(msg) {
+  function toast(msg, durationMs) {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2400);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), durationMs || 2400);
   }
+
+  function openSheet(id) { $("#" + id).classList.add("show"); document.body.style.overflow = "hidden"; }
+  function closeSheet(id) { $("#" + id).classList.remove("show"); document.body.style.overflow = ""; }
+  document.querySelectorAll(".overlay").forEach(ov => {
+    ov.addEventListener("click", (e) => { if (e.target === ov) closeSheet(ov.id); });
+  });
+  document.querySelectorAll("[data-close]").forEach(btn => btn.addEventListener("click", () => closeSheet(btn.dataset.close)));
+
+  let conflictConfirmCallback = null;
+  function showConflictConfirm(message, onConfirm) {
+    $("#conflictConfirmMessage").textContent = message;
+    conflictConfirmCallback = onConfirm;
+    openSheet("conflictConfirmOverlay");
+  }
+  $("#btnConflictCancel").addEventListener("click", () => {
+    closeSheet("conflictConfirmOverlay");
+    conflictConfirmCallback = null;
+  });
+  $("#btnConflictConfirm").addEventListener("click", () => {
+    closeSheet("conflictConfirmOverlay");
+    const cb = conflictConfirmCallback;
+    conflictConfirmCallback = null;
+    if (cb) cb();
+  });
 
   function toMinutes(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
   function escapeHtml(s) {
@@ -131,10 +155,9 @@
       const samePosition = confirmedConflict.execName.trim().toLowerCase() === selectedExecName.trim().toLowerCase();
       banner.classList.add("error");
       banner.textContent = samePosition
-        ? `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (มีนัดหมาย ${confirmedConflict.start}–${confirmedConflict.end}) กรุณาเลือกเวลาอื่น`
-        : `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจในตำแหน่ง "${escapeHtml(confirmedConflict.execName)}" เวลา ${confirmedConflict.start}–${confirmedConflict.end}) กรุณาเลือกเวลาอื่น`;
-      submitBtn.disabled = true;
-      return;
+        ? `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (มีนัดหมาย ${confirmedConflict.start}–${confirmedConflict.end}) — ยังส่งคำขอได้ แต่จะต้องยืนยันอีกครั้งก่อนส่ง`
+        : `⛔ ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจในตำแหน่ง "${escapeHtml(confirmedConflict.execName)}" เวลา ${confirmedConflict.start}–${confirmedConflict.end}) — ยังส่งคำขอได้ แต่จะต้องยืนยันอีกครั้งก่อนส่ง`;
+      return; // warn only — no longer disables submit; the popup handles confirmation at submit time
     }
     const pendingConflict = list.find(a =>
       String(a.status || "").toLowerCase() === "pending" &&
@@ -146,8 +169,33 @@
     }
   }
 
-  $("#bookingForm").addEventListener("submit", async (e) => {
+  function findConfirmedConflict() {
+    const start = $("#bkStart").value, end = $("#bkEnd").value;
+    if (!start || !end) return null;
+    return apptsForSelectedDate().find(a =>
+      String(a.status || "").toLowerCase() !== "pending" &&
+      toMinutes(a.start) < toMinutes(end) && toMinutes(a.end) > toMinutes(start)
+    ) || null;
+  }
+
+  $("#bookingForm").addEventListener("submit", (e) => {
     e.preventDefault();
+    if (toMinutes($("#bkEnd").value) <= toMinutes($("#bkStart").value)) {
+      toast("เวลาสิ้นสุดต้องหลังเวลาเริ่ม");
+      return;
+    }
+    const conflict = findConfirmedConflict();
+    if (conflict) {
+      const samePosition = conflict.execName.trim().toLowerCase() === selectedExecName.trim().toLowerCase();
+      const who = samePosition ? "" : ` (ตำแหน่ง ${conflict.execName})`;
+      const msg = `ช่วงเวลานี้ซ้อนทับกับนัดหมายที่ยืนยันแล้ว${who}:\n"${conflict.title}"\nเวลา ${conflict.start}–${conflict.end}\n\nยังต้องการส่งคำขอนี้ต่อหรือไม่? ผู้บริหารจะเป็นผู้พิจารณา`;
+      showConflictConfirm(msg, () => submitBooking(true));
+      return;
+    }
+    submitBooking(false);
+  });
+
+  async function submitBooking(force) {
     const submitBtn = $("#bkSubmit");
     submitBtn.disabled = true;
     submitBtn.textContent = "กำลังส่งคำขอ...";
@@ -163,6 +211,7 @@
       requestedBy: $("#bkName").value.trim(),
       requestedContact: $("#bkContact").value.trim(),
       requestNote: $("#bkNote").value.trim(),
+      force: !!force,
     };
 
     try {
@@ -173,7 +222,18 @@
       });
       const data = await res.json();
       if (!data.ok) {
-        toast(data.error || "ไม่สามารถส่งคำขอได้ กรุณาลองใหม่");
+        if (data.conflict && data.conflictDetail) {
+          // Race condition: became confirmed by someone else between our check and submit.
+          const d = data.conflictDetail;
+          showConflictConfirm(
+            `ช่วงเวลานี้เพิ่งถูกยืนยันให้ "${d.title}" (${d.execName}) เวลา ${d.start}–${d.end}\n\nยังต้องการส่งคำขอนี้ต่อหรือไม่?`,
+            () => submitBooking(true)
+          );
+          submitBtn.disabled = false;
+          submitBtn.textContent = "ส่งคำขอนัดหมาย";
+          return;
+        }
+        toast(data.error || "ไม่สามารถส่งคำขอได้ กรุณาลองใหม่", 6000);
         submitBtn.disabled = false;
         submitBtn.textContent = "ส่งคำขอนัดหมาย";
         appointments = data.appointments || appointments;
@@ -195,7 +255,7 @@
       submitBtn.disabled = false;
       submitBtn.textContent = "ส่งคำขอนัดหมาย";
     }
-  });
+  }
 
   $("#btnBookAgain").addEventListener("click", () => {
     $("#bookingForm").reset();

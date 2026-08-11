@@ -25,6 +25,11 @@ const EXEC_HEADERS = ['ID', 'Name', 'Color', 'PersonName'];
 const APPT_HEADERS = ['ID', 'ExecutiveName', 'Date', 'Start', 'End', 'Title', 'Location', 'Notes', 'Status', 'RequestedBy', 'RequestedContact', 'RequestNote'];
 const HOLIDAY_HEADERS = ['Date', 'Label'];
 
+// Gets a sheet by name, creating it (with the given headers) if it doesn't exist yet.
+// If it DOES already exist — e.g. from an earlier version of this script, before
+// columns like Status/PersonName existed — this also migrates it by appending any
+// headers it's missing, so column lookups by name never silently land on the wrong
+// (or a nonexistent) column.
 function getOrCreateSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(name);
@@ -33,8 +38,28 @@ function getOrCreateSheet_(name, headers) {
     sh.appendRow(headers);
     sh.setFrozenRows(1);
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    return sh;
+  }
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const existingHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+  const missing = headers.filter(h => existingHeaders.indexOf(h) === -1);
+  if (missing.length) {
+    sh.getRange(1, existingHeaders.length + 1, 1, missing.length).setValues([missing]);
+    sh.getRange(1, existingHeaders.length + 1, 1, missing.length).setFontWeight('bold');
   }
   return sh;
+}
+
+// Finds the 1-indexed column number for a header name by reading the sheet's
+// actual header row — rather than trusting a hardcoded array position, which
+// would be wrong if the real sheet's columns ever end up in a different order
+// than the APPT_HEADERS/EXEC_HEADERS constants (e.g. an older sheet migrated
+// via getOrCreateSheet_ above, or someone manually reordered columns).
+function columnIndexOf_(sh, headerName) {
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const row = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+  const idx = row.indexOf(headerName);
+  return idx === -1 ? -1 : idx + 1;
 }
 
 function readSheetObjects_(sh) {
@@ -126,11 +151,13 @@ function loadData_() {
       title: String(r.Title || '').trim(),
       location: String(r.Location || '').trim(),
       notes: String(r.Notes || '').trim(),
-      // Any row without an explicit Status is treated as PENDING — this covers rows
-      // typed directly into the sheet, not just requests submitted via booking.html.
-      // Nothing shows up as a confirmed appointment anywhere until someone explicitly
-      // approves it (or the admin app writes 'confirmed' itself when saving a form).
-      status: (String(r.Status || '').trim().toLowerCase() || 'pending'),
+      // A row without an explicit Status is treated as CONFIRMED — this is the
+      // executive/staff's own workflow: they log their appointments directly
+      // (in the admin app, or straight into the sheet), and those need no
+      // approval step. Only requests submitted through booking.html (the public
+      // link for outside people) are ever written with Status='pending' — see
+      // the 'requestAppointment' action below, which always sets it explicitly.
+      status: (String(r.Status || '').trim().toLowerCase() || 'confirmed'),
       requestedBy: String(r.RequestedBy || '').trim(),
       requestedContact: String(r.RequestedContact || '').trim(),
       requestNote: String(r.RequestNote || '').trim(),
@@ -194,7 +221,8 @@ function upsertRow_(sh, id, rowValues) {
 function deleteRow_(sh, id) {
   const { rows } = readSheetObjects_(sh);
   const existing = rows.find(r => String(r.ID) === String(id));
-  if (existing) sh.deleteRow(existing.__row);
+  if (existing) { sh.deleteRow(existing.__row); return true; }
+  return false;
 }
 
 function upsertHolidayRow_(sh, date, label) {
@@ -260,12 +288,18 @@ function doPost(e) {
 
     } else if (action === 'requestAppointment') {
       // Used by the public booking page — creates a PENDING request.
-      // Reject outright if this PERSON (across any of their positions) already
-      // has a CONFIRMED slot overlapping this time.
+      // If this PERSON (across any of their positions) already has a CONFIRMED
+      // slot overlapping this time, warn with details and require payload.force
+      // to proceed anyway (the requester explicitly chose to submit despite it).
       const { appointments, executives } = loadData_();
       const conflict = hasConfirmedConflict_(appointments, executives, payload.execName, payload.date, payload.start, payload.end, null);
-      if (conflict) {
-        return jsonOutput_({ ok: false, error: `ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจ "${conflict.title}" ในตำแหน่ง ${conflict.execName} เวลา ${conflict.start}–${conflict.end}) กรุณาเลือกเวลาอื่น` });
+      if (conflict && !payload.force) {
+        return jsonOutput_({
+          ok: false,
+          conflict: true,
+          error: `ช่วงเวลานี้ไม่ว่างแล้ว (ติดภารกิจ "${conflict.title}" ในตำแหน่ง ${conflict.execName} เวลา ${conflict.start}–${conflict.end})`,
+          conflictDetail: { title: conflict.title, execName: conflict.execName, start: conflict.start, end: conflict.end, status: conflict.status },
+        });
       }
       // Not blocked, but flag if another PENDING request already wants this same slot —
       // both will show up for the executive to choose between.
@@ -296,18 +330,34 @@ function doPost(e) {
     } else if (action === 'approveAppointment') {
       const { rows } = readSheetObjects_(apptSheet);
       const row = rows.find(r => String(r.ID) === String(payload.id));
-      if (row) {
-        // Re-check conflicts (across all positions of the same person) at approval time.
-        const { appointments, executives } = loadData_();
-        const conflict = hasConfirmedConflict_(appointments, executives, row.ExecutiveName, formatDateCell_(row.Date), formatTimeCell_(row.Start), formatTimeCell_(row.End), String(row.ID));
-        if (conflict) {
-          return jsonOutput_({ ok: false, error: `ไม่สามารถอนุมัติได้ ช่วงเวลานี้ถูกยืนยันให้ "${conflict.title}" (ตำแหน่ง ${conflict.execName}) ไปแล้ว` });
-        }
-        apptSheet.getRange(row.__row, APPT_HEADERS.indexOf('Status') + 1).setValue('confirmed');
+      if (!row) {
+        // Previously this silently did nothing and still reported success —
+        // which is exactly the "click approve, it silently reverts" bug.
+        // Fail loudly instead so the client knows the approval did NOT happen.
+        return jsonOutput_({ ok: false, error: `ไม่พบนัดหมายนี้ในชีตแล้ว (ID: ${payload.id}) อาจถูกลบหรือแก้ไขไปจากที่อื่น กรุณาซิงก์ข้อมูลใหม่แล้วลองอีกครั้ง` });
       }
+      // Re-check conflicts (across all positions of the same person) at approval time.
+      const { appointments, executives } = loadData_();
+      const conflict = hasConfirmedConflict_(appointments, executives, row.ExecutiveName, formatDateCell_(row.Date), formatTimeCell_(row.Start), formatTimeCell_(row.End), String(row.ID));
+      if (conflict && !payload.force) {
+        return jsonOutput_({
+          ok: false,
+          conflict: true,
+          error: `ช่วงเวลานี้ถูกยืนยันให้ "${conflict.title}" (ตำแหน่ง ${conflict.execName}) ไปแล้ว`,
+          conflictDetail: { title: conflict.title, execName: conflict.execName, start: conflict.start, end: conflict.end, status: conflict.status },
+        });
+      }
+      const statusCol = columnIndexOf_(apptSheet, 'Status');
+      if (statusCol === -1) {
+        return jsonOutput_({ ok: false, error: "ไม่พบคอลัมน์ 'Status' ในชีต Appointments — โปรดตรวจสอบว่าแถวหัวตาราง (แถวที่ 1) มีคอลัมน์ชื่อ Status อยู่" });
+      }
+      apptSheet.getRange(row.__row, statusCol).setValue('confirmed');
 
     } else if (action === 'declineAppointment') {
-      deleteRow_(apptSheet, payload.id);
+      const deleted = deleteRow_(apptSheet, payload.id);
+      if (!deleted) {
+        return jsonOutput_({ ok: false, error: `ไม่พบนัดหมายนี้ในชีตแล้ว (ID: ${payload.id}) อาจถูกลบไปแล้วก่อนหน้านี้ กรุณาซิงก์ข้อมูลใหม่` });
+      }
 
     } else if (action === 'upsertHoliday') {
       upsertHolidayRow_(holidaySheet, payload.date, payload.label || 'วันหยุดราชการ');
@@ -319,6 +369,12 @@ function doPost(e) {
       throw new Error('Unknown action: ' + action);
     }
 
+    // Force any pending spreadsheet writes to actually commit before reading
+    // the data back below — without this, Apps Script can occasionally batch
+    // writes and hand back a stale read within the same execution, which
+    // would report success while the client's next render still shows the
+    // old value.
+    SpreadsheetApp.flush();
     const data = loadData_();
     return jsonOutput_(Object.assign({ ok: true }, data));
   } catch (err) {

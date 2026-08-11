@@ -595,12 +595,8 @@
   $("#btnApptApprove").addEventListener("click", async () => {
     const id = $("#apptId").value;
     if (!id) return;
-    const local = state.appointments.find(a => a.id === id);
-    if (local) { local.status = "confirmed"; saveState(); renderAll(); }
     closeSheet("apptOverlay");
-    toast("อนุมัตินัดหมายแล้ว");
-    const ok = await pushToSheet("approveAppointment", { id });
-    if (!ok) { pullFromSheet({ silent: true }); }
+    approveAppointmentFlow(id);
   });
   $("#btnApptDecline").addEventListener("click", async () => {
     const id = $("#apptId").value;
@@ -613,6 +609,78 @@
     toast("ปฏิเสธคำขอนัดหมายแล้ว");
     pushToSheet("declineAppointment", { id });
   });
+
+  /* ============================================================
+     Conflict override popup — shared by admin approvals AND
+     (via the same overlay markup pattern) referenced from booking.js's
+     own copy for the public request flow.
+     ============================================================ */
+  let conflictConfirmCallback = null;
+  function showConflictConfirm(message, onConfirm) {
+    $("#conflictConfirmMessage").textContent = message;
+    conflictConfirmCallback = onConfirm;
+    openSheet("conflictConfirmOverlay");
+  }
+  $("#btnConflictCancel").addEventListener("click", () => {
+    closeSheet("conflictConfirmOverlay");
+    conflictConfirmCallback = null;
+  });
+  $("#btnConflictConfirm").addEventListener("click", () => {
+    closeSheet("conflictConfirmOverlay");
+    const cb = conflictConfirmCallback;
+    conflictConfirmCallback = null;
+    if (cb) cb();
+  });
+
+  function conflictMessage(conflictDetail) {
+    const d = conflictDetail;
+    return `เวลานี้ซ้อนทับกับนัดหมายที่ยืนยันแล้ว:\n"${d.title}" (${d.execName})\nเวลา ${d.start}–${d.end}\n\nนัดหมายทั้งสองรายการจะเกิดขึ้นในเวลาเดียวกัน — ต้องการยืนยันนัดหมายนี้ต่อหรือไม่?`;
+  }
+
+  // Attempts an approval; on a conflict response, shows the popup and — if the
+  // admin confirms — retries the same call with force:true to override it.
+  async function approveAppointmentFlow(id) {
+    const result = await attemptApproveRequest(id, false);
+    if (result.ok) return;
+    if (result.conflict && result.conflictDetail) {
+      showConflictConfirm(conflictMessage(result.conflictDetail), async () => {
+        await attemptApproveRequest(id, true);
+      });
+    } else {
+      toast(`⚠️ ${result.error || "ไม่สามารถอนุมัติได้"}`, 6000);
+    }
+  }
+
+  async function attemptApproveRequest(id, force) {
+    const url = getSheetUrl();
+    if (!url) { toast("ยังไม่ได้เชื่อมต่อ Google Sheet"); return { ok: false }; }
+    updateSyncStatus("syncing");
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "approveAppointment", payload: { id, force: !!force } }),
+      });
+      let data;
+      try { data = await res.json(); }
+      catch (e) { throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (ไม่ใช่ JSON) — ตรวจสอบว่า deploy Apps Script ล่าสุดแล้ว"); }
+      if (data.ok) {
+        applyRemoteData(data);
+        renderAll();
+        renderPendingList();
+        renderPendingBadge();
+        updateSyncStatus("ok");
+        toast(force ? "ยืนยันนัดหมาย (ซ้อนทับ) แล้ว" : "อนุมัตินัดหมายแล้ว");
+        return { ok: true };
+      }
+      updateSyncStatus("error");
+      return { ok: false, error: data.error, conflict: !!data.conflict, conflictDetail: data.conflictDetail };
+    } catch (err) {
+      console.warn("approve failed", err);
+      updateSyncStatus("error");
+      return { ok: false, error: err.message || String(err) };
+    }
+  }
 
 
   apptForm.addEventListener("submit", (e) => {
@@ -637,6 +705,26 @@
       toast("เวลาสิ้นสุดต้องหลังเวลาเริ่ม");
       return;
     }
+    // Conflict check covers every OTHER position held by the same real person
+    // (via personGroupExecIds/findCrossPositionConflict), not just this exact
+    // position — since the same human can't be in two places regardless of
+    // which title they're wearing. Require explicit re-confirmation via a
+    // popup before saving over a conflict rather than saving silently.
+    const conflict = findCrossPositionConflict(data.execId, data.date, data.start, data.end, id);
+    if (conflict) {
+      const conflictExec = execById(conflict.execId);
+      const samePosition = conflictExec && conflictExec.id === data.execId;
+      const who = personDisplayName(data.execId);
+      const msg = samePosition
+        ? `เวลานี้ซ้อนทับกับนัดหมายที่มีอยู่แล้ว:\n"${conflict.title}"\nเวลา ${conflict.start}–${conflict.end}\n\nต้องการบันทึกนัดหมายนี้ต่อหรือไม่?`
+        : `${who} ติดภารกิจ "${conflict.title}" ในตำแหน่ง "${conflictExec ? conflictExec.name : "—"}" ช่วง ${conflict.start}–${conflict.end} อยู่แล้ว\n\nนัดหมายทั้งสองรายการจะเกิดขึ้นในเวลาเดียวกัน — ต้องการบันทึกนัดหมายนี้ต่อหรือไม่?`;
+      showConflictConfirm(msg, () => saveAppointmentNow(data, id));
+      return;
+    }
+    saveAppointmentNow(data, id);
+  });
+
+  function saveAppointmentNow(data, id) {
     const existingIdx = state.appointments.findIndex(a => a.id === id);
     if (existingIdx >= 0) state.appointments[existingIdx] = data;
     else state.appointments.push(data);
@@ -648,7 +736,7 @@
 
     const ex = execById(data.execId);
     if (ex) pushToSheet("upsertAppointment", { id: data.id, execName: ex.name, date: data.date, start: data.start, end: data.end, title: data.title, location: data.location, notes: data.notes, requestedBy: data.requestedBy, requestedContact: data.requestedContact, requestNote: data.requestNote });
-  });
+  }
 
   // live conflict check (only against CONFIRMED appointments — pending requests don't block)
   ["apptExec", "apptDate", "apptStart", "apptEnd"].forEach(id => {
@@ -1084,15 +1172,9 @@
       </div>`;
     }).join("");
     listEl.querySelectorAll("[data-act='approve']").forEach(btn => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", () => {
         const id = btn.closest("[data-id]").dataset.id;
-        const local = state.appointments.find(a => a.id === id);
-        if (local) { local.status = "confirmed"; saveState(); renderAll(); }
-        renderPendingList(); renderPendingBadge();
-        toast("อนุมัตินัดหมายแล้ว");
-        const ok = await pushToSheet("approveAppointment", { id });
-        if (!ok) pullFromSheet({ silent: true });
-        renderPendingList(); renderPendingBadge();
+        approveAppointmentFlow(id);
       });
     });
     listEl.querySelectorAll("[data-act='decline']").forEach(btn => {
