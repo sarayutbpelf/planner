@@ -29,6 +29,13 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), durationMs || 2400);
   }
+
+  function openSheet(id) { $("#" + id).classList.add("show"); document.body.style.overflow = "hidden"; }
+  function closeSheet(id) { $("#" + id).classList.remove("show"); document.body.style.overflow = ""; }
+  document.querySelectorAll(".overlay").forEach(ov => {
+    ov.addEventListener("click", (e) => { if (e.target === ov) closeSheet(ov.id); });
+  });
+  document.querySelectorAll("[data-close]").forEach(btn => btn.addEventListener("click", () => closeSheet(btn.dataset.close)));
   function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
   function fmtISO(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
   function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -167,92 +174,125 @@
     $("#btnLandingDownload").style.display = "flex";
   }
 
-  // Landscape poster download — same 90°-transposed layout as the official
-  // poster in admin.html (days across the top, เช้า/บ่าย as the two data rows),
-  // built from whatever is currently on screen (all executives, current week).
+  function weekOptionLabel(monday) {
+    const sunday = addDays(monday, 6);
+    return monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
+      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+  }
+
+  function populatePosterWeeks(selectedMonday) {
+    const sel = $("#posterWeekStart");
+    const currentMonday = mondayOf(new Date());
+    const selectedIso = fmtISO(selectedMonday);
+    let optionsHTML = "";
+    let hasSelected = false;
+    for (let i = -4; i <= 8; i++) {
+      const monday = addDays(currentMonday, i * 7);
+      const iso = fmtISO(monday);
+      const isThisWeek = i === 0;
+      const selectedAttr = iso === selectedIso ? " selected" : "";
+      if (selectedAttr) hasSelected = true;
+      optionsHTML += `<option value="${iso}"${selectedAttr}>${weekOptionLabel(monday)}${isThisWeek ? " (สัปดาห์นี้)" : ""}</option>`;
+    }
+    if (!hasSelected) {
+      optionsHTML = `<option value="${selectedIso}" selected>${weekOptionLabel(selectedMonday)}</option>` + optionsHTML;
+    }
+    sel.innerHTML = optionsHTML;
+  }
+
+  // Position + week picker (same UI/flow as admin.html's poster download).
   let lastData = null;
-  async function downloadPoster() {
+  function openPosterSheet() {
+    if (!lastData) return;
+    const options = lastData.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+    $("#posterExec").innerHTML = `<option value="ALL">📋 ทุกตำแหน่ง</option>` + options;
+    populatePosterWeeks(lastData.monday);
+    openSheet("posterOverlay");
+  }
+  $("#btnLandingDownload").addEventListener("click", openPosterSheet);
+  $("#posterForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const execId = $("#posterExec").value;
+    const weekStartInput = $("#posterWeekStart").value;
+    if (!execId || !weekStartInput) return;
+    downloadPoster(execId, new Date(weekStartInput + "T00:00:00"));
+  });
+
+  // Same exact table structure as the on-screen version (วัน / ช่วงเช้า /
+  // ช่วงบ่าย, day rows) — the download is landscape simply because the
+  // canvas is rendered wide, not by changing the layout shape.
+  async function downloadPoster(execId, monday) {
     if (!lastData) return;
     if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
     toast("กำลังสร้างตารางปฏิบัติงาน...");
 
-    const { monday, executives, appointments, holidays } = lastData;
-    const today = startOfDay(new Date());
-    const sunday = addDays(monday, 6);
-    const rangeLabel = monday.getMonth() === sunday.getMonth()
-      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
-      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
-    const posterTitle = "ตารางปฏิบัติงานผู้บริหารทุกท่าน";
+    const { executives, appointments, holidays } = lastData;
+    const isAll = execId === "ALL";
+    const ex = isAll ? null : executives.find(e => e.id === execId);
+    if (!isAll && !ex) return;
     const execById = (id) => executives.find(e => e.id === id);
+
+    const today = startOfDay(new Date());
+    const rangeLabel = weekOptionLabel(monday);
+    const posterTitle = isAll
+      ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน"
+      : (ex.personName && ex.personName.trim())
+        ? `ตารางปฏิบัติงาน ${ex.personName.trim()} ในตำแหน่ง ${ex.name}`
+        : `ตารางปฏิบัติงาน ${ex.name}`;
 
     const wrap = document.createElement("div");
     wrap.style.position = "fixed";
     wrap.style.left = "-9999px";
     wrap.style.top = "0";
-    wrap.style.width = "1500px";
+    wrap.style.width = "1600px";
     wrap.style.background = "var(--canvas)";
-    wrap.style.padding = "40px";
+    wrap.style.padding = "44px";
     wrap.style.boxSizing = "border-box";
 
     function apptChipHTML(a) {
-      const ex = execById(a.execId);
-      const cls = "c-" + (ex ? ex.colorKey : "cream");
-      const execLabel = ex ? `<small>${escapeHtml(ex.name)}</small>` : "";
-      return `<div class="st-chip ${cls}" style="width:100%; box-sizing:border-box;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
+      const chipEx = execById(a.execId);
+      const cls = "c-" + (chipEx ? chipEx.colorKey : "cream");
+      const execLabel = isAll && chipEx ? `<small>${escapeHtml(chipEx.name)}</small>` : "";
+      return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
     }
     function cellHTML(list, holiday) {
-      if (holiday) return `<div class="st-holiday-text" style="justify-content:center; text-align:center;">${escapeHtml(holiday.label)}</div>`;
+      if (holiday) return `<div class="st-holiday-text" style="font-size:14px;">${escapeHtml(holiday.label)}</div>`;
       if (list.length === 0) return "";
       return list.map(apptChipHTML).join("");
     }
 
-    const dayCols = TABLE_DOW.map((d) => {
+    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    TABLE_DOW.forEach((d, i) => {
       const dayOffset = d.key === 0 ? 6 : d.key - 1;
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso, holidays);
-      const dayAppts = appointments.filter(a => a.date === iso).sort((a, b) => a.start.localeCompare(b.start));
-      return {
-        label: d.label.replace("วัน", ""),
-        dateLabel: `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}`,
-        isToday: isSameDay(date, today),
-        holiday,
-        morning: dayAppts.filter(a => toMinutes(a.start) < 12 * 60),
-        afternoon: dayAppts.filter(a => toMinutes(a.start) >= 12 * 60),
-      };
-    });
+      const dayAppts = appointments
+        .filter(a => (isAll || a.execId === execId) && a.date === iso)
+        .sort((a, b) => a.start.localeCompare(b.start));
+      const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
+      const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
+      const isToday = isSameDay(date, today);
+      const alt = i % 2 === 1 ? " alt" : "";
 
-    const gridCols = `110px repeat(7, 1fr)`;
-    let rowsHTML = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline); border-radius:var(--r-lg) var(--r-lg) 0 0; overflow:hidden;">`;
-    rowsHTML += `<div class="st-head" style="text-align:center;"></div>`;
-    dayCols.forEach(d => {
-      rowsHTML += `<div class="st-head" style="text-align:center; background:${d.isToday ? "var(--ink)" : "var(--primary)"};">${d.label}<br><span style="font-weight:500; opacity:.75; font-size:11px;">${d.dateLabel}</span></div>`;
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:16px; padding:16px 18px;">${d.label}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(morning, holiday)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(afternoon, holiday)}</div>`;
     });
-    rowsHTML += `</div>`;
-
-    function dataRow(rowLabel, key, alt) {
-      let html = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline);">`;
-      html += `<div class="st-day${alt ? " alt" : ""}" style="justify-content:center; text-align:center;">${rowLabel}</div>`;
-      dayCols.forEach(d => {
-        html += `<div class="st-cell${alt ? " alt" : ""}" style="flex-direction:column; align-items:stretch; min-height:64px;">${cellHTML(d[key], d.holiday)}</div>`;
-      });
-      html += `</div>`;
-      return html;
-    }
-    rowsHTML += dataRow("ช่วงเช้า", "morning", false);
-    rowsHTML += dataRow("ช่วงบ่าย", "afternoon", true);
-    rowsHTML = `<div style="border-radius:var(--r-lg); overflow:hidden;">${rowsHTML}</div>`;
 
     wrap.innerHTML = `
-      <div style="text-align:center; margin-bottom:28px;">
-        <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
-          <img src="assets/logo.png" alt="" style="width:52px; height:52px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
-          <h1 class="display-sm" style="margin:0; font-size:32px;">${escapeHtml(posterTitle)}</h1>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:20px;">
+        <div style="display:flex; align-items:center; gap:16px; min-width:0;">
+          <img src="assets/logo.png" alt="" style="width:56px; height:56px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
+          <div style="min-width:0;">
+            <h1 class="display-sm" style="margin:0; font-size:30px; line-height:1.25;">${escapeHtml(posterTitle)}</h1>
+            <p class="body-sm" style="color:var(--muted); margin:4px 0 0;">${rangeLabel}</p>
+          </div>
         </div>
-        <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
-      ${rowsHTML}
-      <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
+      <div class="schedule-table" style="grid-template-columns:150px 1fr 1fr;">${rowsHTML}</div>
+      <div style="margin-top:18px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
         <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>
     `;
@@ -272,6 +312,7 @@
       link.href = canvas.toDataURL("image/jpeg", 0.95);
       link.click();
       toast("ดาวน์โหลดตารางปฏิบัติงานแล้ว");
+      closeSheet("posterOverlay");
     } catch (err) {
       console.error(err);
       toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
@@ -279,7 +320,6 @@
       document.body.removeChild(wrap);
     }
   }
-  $("#btnLandingDownload").addEventListener("click", downloadPoster);
 
   async function init() {
     const gasUrl = getGasUrl();
@@ -296,6 +336,7 @@
       const executives = (data.executives || []).map((e, i) => ({
         id: String(e.id),
         name: String(e.name || "").trim(),
+        personName: String(e.person || "").trim(),
         colorKey: normalizeColor(e.color) || COLOR_ORDER[i % COLOR_ORDER.length],
       })).filter(e => e.name);
       const nameToId = new Map(executives.map(e => [e.name.toLowerCase(), e.id]));

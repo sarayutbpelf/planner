@@ -1391,36 +1391,39 @@
 
     const today = startOfDay(new Date());
     const rangeLabel = weekOptionLabel(monday);
-    const posterTitle = isAll ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน" : `ตารางปฏิบัติงาน ${ex.name}`;
+    const posterTitle = isAll
+      ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน"
+      : (ex.personName && ex.personName.trim())
+        ? `ตารางปฏิบัติงาน ${ex.personName.trim()} ในตำแหน่ง ${ex.name}`
+        : `ตารางปฏิบัติงาน ${ex.name}`;
 
-    // Reuse the exact same visual language as the live calendar (same CSS
-    // classes/tokens) so the exported image matches the website 1:1.
-    // Landscape orientation: days run ACROSS the top as columns, with เช้า/บ่าย
-    // as the two data rows underneath — this is a 90° transpose of the on-screen
-    // table (which stays portrait/vertical; only this downloadable image changes).
+    // Same exact table structure as the on-screen version (วัน / ช่วงเช้า /
+    // ช่วงบ่าย, day rows) — the download is landscape simply because the
+    // canvas is rendered wide, not by changing the layout shape.
     const wrap = document.createElement("div");
     wrap.style.position = "fixed";
     wrap.style.left = "-9999px";
     wrap.style.top = "0";
-    wrap.style.width = "1500px";
+    wrap.style.width = "1600px";
     wrap.style.background = "var(--canvas)";
-    wrap.style.padding = "40px";
+    wrap.style.padding = "44px";
     wrap.style.boxSizing = "border-box";
 
     function apptChipHTML(a) {
-      const ex = execById(a.execId);
-      const cls = "c-" + (ex ? ex.colorKey : "cream");
-      const execLabel = isAll && ex ? `<small>${escapeHtml(ex.name)}</small>` : "";
-      return `<div class="st-chip ${cls}" style="width:100%; box-sizing:border-box;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
+      const chipEx = execById(a.execId);
+      const cls = "c-" + (chipEx ? chipEx.colorKey : "cream");
+      const execLabel = isAll && chipEx ? `<small>${escapeHtml(chipEx.name)}</small>` : "";
+      return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<br>${escapeHtml(a.title)}${execLabel}</div>`;
     }
 
     function cellHTML(list, holiday) {
-      if (holiday) return `<div class="st-holiday-text" style="justify-content:center; text-align:center;">${escapeHtml(holiday.label)}</div>`;
+      if (holiday) return `<div class="st-holiday-text" style="font-size:14px;">${escapeHtml(holiday.label)}</div>`;
       if (list.length === 0) return "";
       return list.map(apptChipHTML).join("");
     }
 
-    const dayCols = POSTER_DOW.map((d) => {
+    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    POSTER_DOW.forEach((d, i) => {
       const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
@@ -1428,47 +1431,28 @@
       const dayAppts = state.appointments
         .filter(a => (isAll || a.execId === execId) && a.date === iso && a.status === "confirmed")
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-      return {
-        label: d.label.replace("วัน", ""),
-        dateLabel: `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}`,
-        isToday: isSameDay(date, today),
-        holiday,
-        morning: dayAppts.filter(a => toMinutes(a.start) < 12 * 60),
-        afternoon: dayAppts.filter(a => toMinutes(a.start) >= 12 * 60),
-      };
-    });
+      const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
+      const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
+      const isToday = isSameDay(date, today);
+      const alt = i % 2 === 1 ? " alt" : "";
 
-    const gridCols = `110px repeat(7, 1fr)`;
-    let rowsHTML = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline); border-radius:var(--r-lg) var(--r-lg) 0 0; overflow:hidden;">`;
-    rowsHTML += `<div class="st-head" style="text-align:center;"></div>`;
-    dayCols.forEach(d => {
-      rowsHTML += `<div class="st-head" style="text-align:center; background:${d.isToday ? "var(--ink)" : "var(--primary)"};">${d.label}<br><span style="font-weight:500; opacity:.75; font-size:11px;">${d.dateLabel}</span></div>`;
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:16px; padding:16px 18px;">${d.label}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(morning, holiday)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(afternoon, holiday)}</div>`;
     });
-    rowsHTML += `</div>`;
-
-    function dataRow(rowLabel, key, alt) {
-      let html = `<div style="display:grid; grid-template-columns:${gridCols}; gap:1px; background:var(--hairline);">`;
-      html += `<div class="st-day${alt ? " alt" : ""}" style="justify-content:center; text-align:center;">${rowLabel}</div>`;
-      dayCols.forEach(d => {
-        html += `<div class="st-cell${alt ? " alt" : ""}" style="flex-direction:column; align-items:stretch; min-height:64px;">${cellHTML(d[key], d.holiday)}</div>`;
-      });
-      html += `</div>`;
-      return html;
-    }
-    rowsHTML += dataRow("ช่วงเช้า", "morning", false);
-    rowsHTML += dataRow("ช่วงบ่าย", "afternoon", true);
-    rowsHTML = `<div style="border-radius:var(--r-lg); overflow:hidden;">${rowsHTML}</div>`;
 
     wrap.innerHTML = `
-      <div style="text-align:center; margin-bottom:28px;">
-        <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
-          <img src="assets/logo.png" alt="" style="width:52px; height:52px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
-          <h1 class="display-sm" style="margin:0; font-size:32px;">${escapeHtml(posterTitle)}</h1>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:20px;">
+        <div style="display:flex; align-items:center; gap:16px; min-width:0;">
+          <img src="assets/logo.png" alt="" style="width:56px; height:56px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
+          <div style="min-width:0;">
+            <h1 class="display-sm" style="margin:0; font-size:30px; line-height:1.25;">${escapeHtml(posterTitle)}</h1>
+            <p class="body-sm" style="color:var(--muted); margin:4px 0 0;">${rangeLabel}</p>
+          </div>
         </div>
-        <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
-      ${rowsHTML}
-      <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
+      <div class="schedule-table" style="grid-template-columns:150px 1fr 1fr;">${rowsHTML}</div>
+      <div style="margin-top:18px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
         <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>
     `;

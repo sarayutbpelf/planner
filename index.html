@@ -97,6 +97,30 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ============ Poster download options (position + week) ============ -->
+<div class="overlay" id="posterOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="posterSheetTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="posterSheetTitle">ดาวน์โหลดตารางปฏิบัติงาน</h2>
+      <button class="sheet-close" data-close="posterOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="posterForm">
+      <div class="field">
+        <label for="posterExec">เลือกผู้บริหาร</label>
+        <select class="text-input" id="posterExec" required></select>
+      </div>
+      <div class="field">
+        <label for="posterWeekStart">สัปดาห์</label>
+        <select class="text-input" id="posterWeekStart" required></select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">🖨️ ดาวน์โหลดรูปภาพ</button>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="landing.js"></script>
 </body>
