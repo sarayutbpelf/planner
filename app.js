@@ -1404,18 +1404,21 @@
     wrap.style.padding = "40px";
     wrap.style.boxSizing = "border-box";
 
-    function periodBlock(label, list, holiday) {
-      const heading = `<div class="caption-upper" style="color:var(--muted); margin-bottom:8px;">${label}</div>`;
-      if (holiday) {
-        return `<div style="flex:1; min-width:0;">${heading}<span class="badge-pill" style="background:var(--brand-ochre); color:var(--ink);">🎌 ${escapeHtml(holiday.label)}</span></div>`;
-      }
-      if (list.length === 0) {
-        return `<div style="flex:1; min-width:0;">${heading}<div class="day-empty" style="padding:0;">ไม่มีนัดหมาย</div></div>`;
-      }
-      return `<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;">${heading}${list.map(a => apptCardHTML(a)).join("")}</div>`;
+    function apptChipHTML(a) {
+      const ex = execById(a.execId);
+      const cls = "c-" + (ex ? ex.colorKey : "cream");
+      const execLabel = isAll && ex ? `<small>${escapeHtml(ex.name)}</small>` : "";
+      return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)} ${escapeHtml(a.title)}${execLabel}</div>`;
     }
 
-    const rowsHTML = POSTER_DOW.map(d => {
+    function cellHTML(list, holiday) {
+      if (holiday) return `<div class="st-holiday-text" style="font-size:13px;">${escapeHtml(holiday.label)}</div>`;
+      if (list.length === 0) return "";
+      return list.map(apptChipHTML).join("");
+    }
+
+    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    POSTER_DOW.forEach((d, i) => {
       const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
@@ -1426,18 +1429,12 @@
       const morning = dayAppts.filter(a => toMinutes(a.start) < 12 * 60);
       const afternoon = dayAppts.filter(a => toMinutes(a.start) >= 12 * 60);
       const isToday = isSameDay(date, today);
+      const alt = i % 2 === 1 ? " alt" : "";
 
-      return `<div class="day-card" style="margin-bottom:12px;">
-        <div class="day-card-header ${isToday ? "today" : ""}">
-          <span class="dow">${d.label}</span>
-          <span class="dom">${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}</span>
-        </div>
-        <div class="day-card-body" style="flex-direction:row; gap:18px;">
-          ${periodBlock("เช้า", morning, holiday)}
-          ${periodBlock("บ่าย", afternoon, holiday)}
-        </div>
-      </div>`;
-    }).join("");
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:15px; padding:14px 16px;">${d.label}<br><span style="font-size:12px; font-weight:500; opacity:.7;">${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear() + 543}</span></div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:12px;">${cellHTML(morning, holiday)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:12px;">${cellHTML(afternoon, holiday)}</div>`;
+    });
 
     wrap.innerHTML = `
       <div style="text-align:center; margin-bottom:28px;">
@@ -1447,7 +1444,7 @@
         </div>
         <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
       </div>
-      ${rowsHTML}
+      <div class="schedule-table" style="min-width:0; grid-template-columns:130px 1fr 1fr;">${rowsHTML}</div>
       <div style="margin-top:16px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
         <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>

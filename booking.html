@@ -31,27 +31,7 @@
   .state-banner.error{ background:#fde8e8; color:var(--error); display:block; }
   .state-banner.warn{ background:#fef3e0; color:#8a5a00; display:block; }
   .success-card{ text-align:center; padding:var(--xxl) var(--lg); }
-
-  .landing-week-list{ display:flex; flex-direction:column; gap:var(--md); }
   .landing-empty{ text-align:center; padding:var(--xxl) var(--md); color:var(--muted); }
-
-  /* Timeline day view — events positioned by actual time-of-day, with
-     side-by-side columns for anything that overlaps in time. */
-  .day-timeline{ position:relative; background:var(--surface-card); display:flex; }
-  .day-timeline-hours{ width:48px; flex-shrink:0; position:relative; border-right:1px solid var(--hairline-soft); }
-  .day-timeline-hour-label{
-    position:absolute; left:0; right:6px; text-align:right; font-size:10px;
-    color:var(--muted-soft); transform:translateY(-50%); font-variant-numeric:tabular-nums;
-  }
-  .day-timeline-track{ position:relative; flex:1; min-width:0; }
-  .day-timeline-gridline{ position:absolute; left:0; right:0; border-top:1px solid var(--hairline-soft); }
-  .day-timeline-event{
-    position:absolute; border-radius:var(--r-sm); padding:4px 8px;
-    overflow:hidden; box-sizing:border-box; display:flex; flex-direction:column; gap:1px;
-  }
-  .day-timeline-event .dt-time{ font-size:10px; font-weight:700; opacity:.9; line-height:1.2; }
-  .day-timeline-event .dt-title{ font-size:12px; font-weight:600; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .day-timeline-event .dt-exec{ font-size:10px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style>
 </head>
 <body>
@@ -69,7 +49,7 @@
       <div class="booking-calendar-card">
         <div class="title-md" id="calTitle">ตารางนัดหมาย</div>
         <div class="body-sm" id="calWeekLabel" style="color:var(--muted); margin-bottom:var(--md);">—</div>
-        <div id="calWeekList" class="landing-week-list"></div>
+        <div id="calWeekList" style="overflow-x:auto;"></div>
         <div id="calEmpty" class="landing-empty" style="display:none;">
           <div class="em-icon" style="font-size:32px; margin-bottom:8px;">🗓️</div>
           <p class="body-sm">สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว</p>

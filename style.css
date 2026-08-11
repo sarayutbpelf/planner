@@ -176,6 +176,41 @@ a{color:inherit;}
 .week-grid{display:none;}
 .week-day-list{display:flex; flex-direction:column; gap:var(--md);}
 
+/* =========================================================
+   Schedule table — วัน / ช่วงเช้า / ช่วงบ่าย grid, used everywhere
+   EXCEPT the interactive admin week/month calendar (index.html,
+   booking.html, and the official downloadable poster).
+   ========================================================= */
+.schedule-table{
+  display:grid; grid-template-columns:110px 1fr 1fr;
+  gap:1px; background:var(--hairline); border-radius:var(--r-lg); overflow:hidden;
+  min-width:520px;
+}
+.schedule-table .st-head{
+  background:var(--primary); color:var(--on-primary);
+  padding:10px 12px; font-size:12px; font-weight:600; letter-spacing:.3px;
+}
+.schedule-table .st-day{
+  background:var(--canvas); padding:10px 12px; font-size:13px; font-weight:600;
+  color:var(--ink); display:flex; align-items:center; gap:6px;
+}
+.schedule-table .st-day.alt{ background:var(--surface-soft); }
+.schedule-table .st-day.holiday{ color:var(--muted-soft); }
+.schedule-table .st-day.today::before{
+  content:""; width:7px; height:7px; border-radius:50%; background:var(--ink); flex-shrink:0;
+}
+.schedule-table .st-cell{
+  background:var(--canvas); padding:8px; display:flex; gap:6px; flex-wrap:wrap;
+  align-content:flex-start; min-height:20px;
+}
+.schedule-table .st-cell.alt{ background:var(--surface-soft); }
+.schedule-table .st-holiday-text{ font-size:11px; color:var(--muted-soft); display:flex; align-items:center; }
+.schedule-table .st-chip{
+  font-size:11px; font-weight:600; padding:6px 10px; border-radius:var(--r-sm); line-height:1.35;
+}
+.schedule-table .st-chip.pending{ border:2px dashed var(--brand-ochre); }
+.schedule-table .st-chip small{ display:block; font-weight:500; opacity:.85; font-size:10px; }
+
 .day-card{
   background:var(--surface-card);
   border-radius:var(--r-lg);

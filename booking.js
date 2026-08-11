@@ -15,6 +15,7 @@
 
   let executives = [];
   let appointments = [];
+  let holidays = [];
   let selectedExecName = "";
 
   const toastEl = $("#toast");
@@ -71,71 +72,80 @@
   }
 
   /* ============================================================
-     Calendar preview (left column) — read-only timeline of the
-     selected executive's CURRENT WEEK, confirmed appointments only.
+     Calendar preview (left column) — read-only schedule table
+     (วัน / ช่วงเช้า / ช่วงบ่าย) of the selected executive's CURRENT
+     WEEK, confirmed + pending appointments — never shows titles,
+     just "ไม่ว่าง" (busy), since this page is visible to anyone with
+     the link.
      ============================================================ */
   const DOW_FULL = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
   const MONTH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
   const MONTH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-  const PX_PER_HOUR = 56;
-  const MIN_EVENT_HEIGHT = 30;
 
   function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
   function fmtISO(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
   function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-  function startOfWeek(d) { const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
   function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
-
-  function layoutColumns(items) {
-    const sorted = items.slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-    const colEndTimes = [];
-    const placed = sorted.map(item => {
-      const s = toMinutes(item.start), e = toMinutes(item.end);
-      let col = colEndTimes.findIndex(endT => s >= endT);
-      if (col === -1) { col = colEndTimes.length; colEndTimes.push(e); }
-      else { colEndTimes[col] = e; }
-      return Object.assign({}, item, { col });
-    });
-    return { placed, totalCols: colEndTimes.length || 1 };
+  function mondayOf(d) {
+    const x = startOfDay(d);
+    const dow = x.getDay(); // 0=Sun..6=Sat
+    const diff = dow === 0 ? -6 : 1 - dow;
+    x.setDate(x.getDate() + diff);
+    return x;
   }
 
-  function dayTimelineHTML(items) {
-    if (items.length === 0) return `<div class="day-empty">ไม่มีนัดหมาย</div>`;
-    let rangeStart = 8 * 60, rangeEnd = 18 * 60;
-    items.forEach(a => {
-      rangeStart = Math.min(rangeStart, Math.floor(toMinutes(a.start) / 60) * 60);
-      rangeEnd = Math.max(rangeEnd, Math.ceil(toMinutes(a.end) / 60) * 60);
+  const TABLE_DOW = [
+    { key: 1, label: "วันจันทร์" },
+    { key: 2, label: "วันอังคาร" },
+    { key: 3, label: "วันพุธ" },
+    { key: 4, label: "วันพฤหัสบดี" },
+    { key: 5, label: "วันศุกร์" },
+    { key: 6, label: "วันเสาร์" },
+    { key: 0, label: "วันอาทิตย์" },
+  ];
+
+  function holidayFor(dateISO) {
+    const custom = holidays.find(h => h.date === dateISO);
+    if (custom) return custom;
+    const dow = new Date(dateISO + "T00:00:00").getDay();
+    if (dow === 0 || dow === 6) return { date: dateISO, label: "วันหยุดราชการ" };
+    return null;
+  }
+
+  function busyChipHTML(a) {
+    const pending = String(a.status || "").toLowerCase() === "pending";
+    const cls = pending ? "c-cream pending" : "c-pink";
+    return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${pending ? "ไม่ว่าง (รออนุมัติ)" : "ไม่ว่าง"}</small></div>`;
+  }
+
+  function scheduleTableHTML(monday, group) {
+    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    const today = startOfDay(new Date());
+    TABLE_DOW.forEach((d, i) => {
+      const dayOffset = d.key === 0 ? 6 : d.key - 1;
+      const date = addDays(monday, dayOffset);
+      const iso = fmtISO(date);
+      const holiday = holidayFor(iso);
+      const isToday = isSameDay(date, today);
+      const alt = i % 2 === 1 ? " alt" : "";
+
+      const items = appointments
+        .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
+        .sort((a, b) => a.start.localeCompare(b.start));
+      const morning = items.filter(a => toMinutes(a.start) < 12 * 60);
+      const afternoon = items.filter(a => toMinutes(a.start) >= 12 * 60);
+
+      function cellHTML(list) {
+        if (holiday) return `<div class="st-holiday-text">${escapeHtml(holiday.label)}</div>`;
+        if (list.length === 0) return "";
+        return list.map(busyChipHTML).join("");
+      }
+
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${d.label}</div>`;
+      rowsHTML += `<div class="st-cell${alt}">${cellHTML(morning)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}">${cellHTML(afternoon)}</div>`;
     });
-    const hourCount = (rangeEnd - rangeStart) / 60;
-    const totalHeight = hourCount * PX_PER_HOUR;
-
-    let hoursHTML = "", gridHTML = "";
-    for (let i = 0; i <= hourCount; i++) {
-      const top = i * PX_PER_HOUR;
-      const hh = String(Math.floor((rangeStart + i * 60) / 60) % 24).padStart(2, "0");
-      hoursHTML += `<div class="day-timeline-hour-label" style="top:${top}px;">${hh}:00</div>`;
-      gridHTML += `<div class="day-timeline-gridline" style="top:${top}px;"></div>`;
-    }
-
-    const { placed, totalCols } = layoutColumns(items);
-    const eventsHTML = placed.map(a => {
-      const pending = String(a.status || "").toLowerCase() === "pending";
-      const cls = pending ? "c-cream" : "c-pink";
-      const s = toMinutes(a.start), e = toMinutes(a.end);
-      const top = ((s - rangeStart) / 60) * PX_PER_HOUR;
-      const height = Math.max(((e - s) / 60) * PX_PER_HOUR, MIN_EVENT_HEIGHT);
-      const widthPct = 100 / totalCols;
-      const leftPct = a.col * widthPct;
-      return `<div class="day-timeline-event ${cls}" style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px); ${pending ? "border:2px dashed var(--brand-ochre);" : ""}">
-        <span class="dt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
-        <span class="dt-title">${pending ? "ไม่ว่าง (รออนุมัติ)" : "ไม่ว่าง"}</span>
-      </div>`;
-    }).join("");
-
-    return `<div class="day-timeline" style="height:${totalHeight}px;">
-      <div class="day-timeline-hours" style="height:${totalHeight}px;">${hoursHTML}</div>
-      <div class="day-timeline-track" style="height:${totalHeight}px;">${gridHTML}${eventsHTML}</div>
-    </div>`;
+    return `<div class="schedule-table">${rowsHTML}</div>`;
   }
 
   function renderCalendarPreview() {
@@ -143,45 +153,28 @@
     $("#calendarCol").style.display = "";
     $("#calTitle").textContent = `ตารางของ ${selectedExecName}`;
 
-    const today = startOfDay(new Date());
-    const start = startOfWeek(today);
-    const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const end = days[6];
-    const label = start.getMonth() === end.getMonth()
-      ? `${start.getDate()}–${end.getDate()} ${MONTH_FULL[start.getMonth()]} ${start.getFullYear() + 543}`
-      : `${start.getDate()} ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear() + 543}`;
+    const monday = mondayOf(new Date());
+    const sunday = addDays(monday, 6);
+    const label = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
+      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
     $("#calWeekLabel").textContent = label;
 
     const group = personGroupNames(selectedExecName);
     const weekItems = appointments.filter(a => {
       const d = new Date(a.date + "T00:00:00");
-      return d >= start && d <= end && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined";
+      return d >= monday && d <= sunday && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined";
     });
+    const weekHoliday = holidays.some(h => { const d = new Date(h.date + "T00:00:00"); return d >= monday && d <= sunday; });
 
-    if (weekItems.length === 0) {
+    if (weekItems.length === 0 && !weekHoliday) {
       $("#calWeekList").style.display = "none";
       $("#calEmpty").style.display = "block";
       return;
     }
     $("#calWeekList").style.display = "";
     $("#calEmpty").style.display = "none";
-
-    $("#calWeekList").innerHTML = days.map(d => {
-      const iso = fmtISO(d);
-      const items = appointments
-        .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
-        .sort((a, b) => a.start.localeCompare(b.start));
-      const isToday = isSameDay(d, today);
-      return `<div class="day-card">
-        <div class="day-card-header ${isToday ? "today" : ""}">
-          <span class="dow">${DOW_FULL[d.getDay()]}</span>
-          <span class="dom">${d.getDate()} ${MONTH_SHORT[d.getMonth()]}</span>
-        </div>
-        <div class="day-card-body" style="${items.length ? "padding:0;" : ""}">
-          ${dayTimelineHTML(items)}
-        </div>
-      </div>`;
-    }).join("");
+    $("#calWeekList").innerHTML = scheduleTableHTML(monday, group);
   }
 
   async function init() {
@@ -193,6 +186,7 @@
       if (!data.ok) throw new Error(data.error || "load failed");
       executives = data.executives || [];
       appointments = data.appointments || [];
+      holidays = data.holidays || [];
       populateExecSelect();
       showState("formState");
     } catch (err) {

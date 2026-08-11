@@ -50,29 +50,6 @@
   .role-card .role-cta{ margin-top:6px; }
 
   .landing-empty{ text-align:center; padding:var(--xxl) var(--md); color:var(--muted); }
-
-  /* Give the landing preview its own list class — .week-day-list is hidden by
-     style.css on >=860px screens for the admin app's desktop grid view, which
-     would otherwise make this calendar preview disappear on desktop here. */
-  .landing-week-list{ display:flex; flex-direction:column; gap:var(--md); }
-
-  /* Timeline day view — events positioned by actual time-of-day, with
-     side-by-side columns for anything that overlaps in time. */
-  .day-timeline{ position:relative; background:var(--surface-card); display:flex; }
-  .day-timeline-hours{ width:48px; flex-shrink:0; position:relative; border-right:1px solid var(--hairline-soft); }
-  .day-timeline-hour-label{
-    position:absolute; left:0; right:6px; text-align:right; font-size:10px;
-    color:var(--muted-soft); transform:translateY(-50%); font-variant-numeric:tabular-nums;
-  }
-  .day-timeline-track{ position:relative; flex:1; min-width:0; }
-  .day-timeline-gridline{ position:absolute; left:0; right:0; border-top:1px solid var(--hairline-soft); }
-  .day-timeline-event{
-    position:absolute; border-radius:var(--r-sm); padding:4px 8px;
-    overflow:hidden; box-sizing:border-box; display:flex; flex-direction:column; gap:1px;
-  }
-  .day-timeline-event .dt-time{ font-size:10px; font-weight:700; opacity:.9; line-height:1.2; }
-  .day-timeline-event .dt-title{ font-size:12px; font-weight:600; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .day-timeline-event .dt-exec{ font-size:10px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style>
 </head>
 <body>
@@ -96,7 +73,7 @@
         </div>
       </div>
       <div id="landingLoading" class="body-sm" style="color:var(--muted); padding:var(--lg) 0; text-align:center;">กำลังโหลดตารางนัดหมาย...</div>
-      <div id="landingWeekList" class="landing-week-list" style="display:none;"></div>
+      <div id="landingWeekList" style="display:none; overflow-x:auto;"></div>
       <div id="landingEmpty" class="landing-empty" style="display:none;">
         <div class="em-icon" style="font-size:36px; margin-bottom:8px;">🗓️</div>
         <p class="body-sm">ยังไม่มีข้อมูลตารางนัดหมายให้แสดงในขณะนี้</p>

@@ -65,61 +65,66 @@
   const PX_PER_HOUR = 56;
   const MIN_EVENT_HEIGHT = 30;
 
-  // Pack overlapping events into side-by-side columns (like a real calendar day view)
-  // so staggered/overlapping appointments never hide each other.
-  function layoutColumns(items) {
-    const sorted = items.slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-    const colEndTimes = [];
-    const placed = sorted.map(item => {
-      const s = toMinutes(item.start), e = toMinutes(item.end);
-      let col = colEndTimes.findIndex(endT => s >= endT);
-      if (col === -1) { col = colEndTimes.length; colEndTimes.push(e); }
-      else { colEndTimes[col] = e; }
-      return Object.assign({}, item, { col });
-    });
-    return { placed, totalCols: colEndTimes.length || 1 };
+  function mondayOf(d) {
+    const x = startOfDay(d);
+    const dow = x.getDay(); // 0=Sun..6=Sat
+    const diff = dow === 0 ? -6 : 1 - dow;
+    x.setDate(x.getDate() + diff);
+    return x;
   }
 
-  function dayTimelineHTML(items, execById) {
-    if (items.length === 0) return `<div class="day-empty">ไม่มีนัดหมาย</div>`;
+  const TABLE_DOW = [
+    { key: 1, label: "วันจันทร์" },
+    { key: 2, label: "วันอังคาร" },
+    { key: 3, label: "วันพุธ" },
+    { key: 4, label: "วันพฤหัสบดี" },
+    { key: 5, label: "วันศุกร์" },
+    { key: 6, label: "วันเสาร์" },
+    { key: 0, label: "วันอาทิตย์" },
+  ];
 
-    // Default business-hours window, widened automatically if any appointment falls outside it.
-    let rangeStart = 8 * 60, rangeEnd = 18 * 60;
-    items.forEach(a => {
-      rangeStart = Math.min(rangeStart, Math.floor(toMinutes(a.start) / 60) * 60);
-      rangeEnd = Math.max(rangeEnd, Math.ceil(toMinutes(a.end) / 60) * 60);
+  function holidayFor(dateISO, holidays) {
+    const custom = holidays.find(h => h.date === dateISO);
+    if (custom) return custom;
+    const dow = new Date(dateISO + "T00:00:00").getDay();
+    if (dow === 0 || dow === 6) return { date: dateISO, label: "วันหยุดราชการ" };
+    return null;
+  }
+
+  function apptChipHTML(a, execById) {
+    const ex = execById(a.execId);
+    const cls = "c-" + (ex ? ex.colorKey : "cream");
+    return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title)}</small></div>`;
+  }
+
+  function scheduleTableHTML(monday, executives, appointments, holidays) {
+    const execById = (id) => executives.find(e => e.id === id);
+    const today = startOfDay(new Date());
+
+    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    TABLE_DOW.forEach((d, i) => {
+      const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
+      const date = addDays(monday, dayOffset);
+      const iso = fmtISO(date);
+      const holiday = holidayFor(iso, holidays);
+      const isToday = isSameDay(date, today);
+      const alt = i % 2 === 1 ? " alt" : "";
+
+      const items = appointments.filter(a => a.date === iso).sort((a, b) => a.start.localeCompare(b.start));
+      const morning = items.filter(a => toMinutes(a.start) < 12 * 60);
+      const afternoon = items.filter(a => toMinutes(a.start) >= 12 * 60);
+
+      function cellHTML(list) {
+        if (holiday) return `<div class="st-holiday-text">${escapeHtml(holiday.label)}</div>`;
+        if (list.length === 0) return "";
+        return list.map(a => apptChipHTML(a, execById)).join("");
+      }
+
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${d.label}</div>`;
+      rowsHTML += `<div class="st-cell${alt}">${cellHTML(morning)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}">${cellHTML(afternoon)}</div>`;
     });
-    const hourCount = (rangeEnd - rangeStart) / 60;
-    const totalHeight = hourCount * PX_PER_HOUR;
-
-    let hoursHTML = "", gridHTML = "";
-    for (let i = 0; i <= hourCount; i++) {
-      const top = i * PX_PER_HOUR;
-      const hh = String(Math.floor((rangeStart + i * 60) / 60) % 24).padStart(2, "0");
-      hoursHTML += `<div class="day-timeline-hour-label" style="top:${top}px;">${hh}:00</div>`;
-      gridHTML += `<div class="day-timeline-gridline" style="top:${top}px;"></div>`;
-    }
-
-    const { placed, totalCols } = layoutColumns(items);
-    const eventsHTML = placed.map(a => {
-      const ex = execById(a.execId);
-      const cls = "c-" + (ex ? ex.colorKey : "cream");
-      const s = toMinutes(a.start), e = toMinutes(a.end);
-      const top = ((s - rangeStart) / 60) * PX_PER_HOUR;
-      const height = Math.max(((e - s) / 60) * PX_PER_HOUR, MIN_EVENT_HEIGHT);
-      const widthPct = 100 / totalCols;
-      const leftPct = a.col * widthPct;
-      return `<div class="day-timeline-event ${cls}" style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px);">
-        <span class="dt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
-        <span class="dt-title">${escapeHtml(a.title)}</span>
-        ${ex ? `<span class="dt-exec">${escapeHtml(ex.name)}</span>` : ""}
-      </div>`;
-    }).join("");
-
-    return `<div class="day-timeline" style="height:${totalHeight}px;">
-      <div class="day-timeline-hours" style="height:${totalHeight}px;">${hoursHTML}</div>
-      <div class="day-timeline-track" style="height:${totalHeight}px;">${gridHTML}${eventsHTML}</div>
-    </div>`;
+    return `<div class="schedule-table">${rowsHTML}</div>`;
   }
 
   function renderWeekLabel(start, end) {
@@ -129,39 +134,23 @@
     $("#landingWeekLabel").textContent = label;
   }
 
-  function renderWeek(executives, appointments) {
-    const execById = (id) => executives.find(e => e.id === id);
+  function renderWeek(executives, appointments, holidays) {
     const today = startOfDay(new Date());
-    const start = startOfWeek(today);
-    const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    renderWeekLabel(start, days[6]);
+    const monday = mondayOf(today);
+    const sunday = addDays(monday, 6);
+    renderWeekLabel(monday, sunday);
 
     const totalAppts = appointments.filter(a => {
       const d = new Date(a.date + "T00:00:00");
-      return d >= start && d <= days[6];
+      return d >= monday && d <= sunday;
     });
 
-    if (totalAppts.length === 0) {
+    if (totalAppts.length === 0 && holidays.every(h => { const d = new Date(h.date + "T00:00:00"); return !(d >= monday && d <= sunday); })) {
       showEmpty("สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว");
       return;
     }
 
-    $("#landingWeekList").innerHTML = days.map(d => {
-      const iso = fmtISO(d);
-      const items = appointments
-        .filter(a => a.date === iso)
-        .sort((a, b) => a.start.localeCompare(b.start));
-      const isToday = isSameDay(d, today);
-      return `<div class="day-card">
-        <div class="day-card-header ${isToday ? "today" : ""}">
-          <span class="dow">${DOW_FULL[d.getDay()]}</span>
-          <span class="dom">${d.getDate()} ${MONTH_SHORT[d.getMonth()]}</span>
-        </div>
-        <div class="day-card-body" style="${items.length ? "padding:0;" : ""}">
-          ${dayTimelineHTML(items, execById)}
-        </div>
-      </div>`;
-    }).join("");
+    $("#landingWeekList").innerHTML = scheduleTableHTML(monday, executives, appointments, holidays);
     showList();
   }
 
@@ -196,7 +185,12 @@
         }))
         .filter(a => a.execId && a.date && a.title && a.start && a.end);
 
-      renderWeek(executives, appointments);
+      const holidays = (data.holidays || []).map(h => ({
+        date: String(h.date || "").trim(),
+        label: String(h.label || "วันหยุดราชการ").trim(),
+      })).filter(h => h.date);
+
+      renderWeek(executives, appointments, holidays);
     } catch (err) {
       console.error(err);
       showEmpty("ไม่สามารถโหลดตารางนัดหมายได้ในขณะนี้ ลองรีเฟรชหน้าอีกครั้ง");
