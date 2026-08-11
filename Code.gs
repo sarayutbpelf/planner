@@ -1,8 +1,8 @@
 /**
- * ExecCal <-> Google Sheets bridge
+ * P-Roster <-> Google Sheets bridge
  * -------------------------------------------------------------
  * วิธีติดตั้ง:
- * 1. สร้าง Google Sheet ใหม่ (ชื่ออะไรก็ได้ เช่น "ExecCal Data")
+ * 1. สร้าง Google Sheet ใหม่ (ชื่ออะไรก็ได้ เช่น "P-Roster Data")
  * 2. เมนู Extensions > Apps Script
  * 3. ลบโค้ดเดิมทั้งหมดในไฟล์ Code.gs แล้ววางโค้ดนี้ทับ
  * 4. กด Deploy > New deployment
@@ -10,7 +10,7 @@
  *    - Execute as: Me
  *    - Who has access: Anyone
  * 5. กด Deploy แล้วคัดลอกลิงก์ "Web app URL" (ลงท้ายด้วย /exec)
- * 6. นำลิงก์ไปวางในแอป ExecCal เมนู > เชื่อมต่อ Google Sheet
+ * 6. นำลิงก์ไปวางในแอป P-Roster เมนู > เชื่อมต่อ Google Sheet
  *
  * สคริปต์นี้จะสร้างชีต "Executives" และ "Appointments" ให้อัตโนมัติ
  * ในการเรียกครั้งแรก พร้อมหัวตาราง (header row)
@@ -380,10 +380,17 @@ function doPost(e) {
       updateRowByHeader_(apptSheet, row.__row, { Status: 'confirmed' });
 
     } else if (action === 'declineAppointment') {
-      const deleted = deleteRow_(apptSheet, payload.id);
-      if (!deleted) {
+      // Soft-delete: mark as 'declined' rather than removing the row. A hard
+      // delete here meant that if this write ever failed to land (e.g. a
+      // transient error) a later sync would pull the still-existing pending
+      // row right back — this also keeps a visible (faded) record of what
+      // was declined instead of silently disappearing.
+      const { rows } = readSheetObjects_(apptSheet);
+      const row = rows.find(r => String(r.ID) === String(payload.id));
+      if (!row) {
         return jsonOutput_({ ok: false, error: `ไม่พบนัดหมายนี้ในชีตแล้ว (ID: ${payload.id}) อาจถูกลบไปแล้วก่อนหน้านี้ กรุณาซิงก์ข้อมูลใหม่` });
       }
+      updateRowByHeader_(apptSheet, row.__row, { Status: 'declined' });
 
     } else if (action === 'upsertHoliday') {
       upsertHolidayRow_(holidaySheet, payload.date, payload.label || 'วันหยุดราชการ');

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>ExecCal — ตารางนัดหมายผู้บริหาร</title>
+<title>P-Roster — ตารางนัดหมายผู้บริหาร</title>
 <meta name="description" content="ระบบตารางนัดหมายผู้บริหาร — ดูตารางนัดหมายและจัดการนัดหมาย">
 <meta name="theme-color" content="#fffaf0">
 <link rel="manifest" href="manifest.json">
@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="ExecCal">
+<meta name="apple-mobile-web-app-title" content="P-Roster">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -24,9 +24,9 @@
     border-bottom:1px solid var(--hairline-soft);
   }
   .landing-header .landing-logo{
-    width:36px; height:36px; border-radius:var(--r-sm); background:var(--primary); color:var(--on-primary);
-    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex-shrink:0;
+    width:36px; height:36px; border-radius:var(--r-sm); overflow:hidden; flex-shrink:0;
   }
+  .landing-header .landing-logo img{ width:100%; height:100%; object-fit:cover; }
 
   .landing-shell{
     max-width:1200px; margin:0 auto; padding:var(--md);
@@ -78,9 +78,9 @@
 <body>
 
 <header class="landing-header">
-  <div class="landing-logo">EC</div>
+  <div class="landing-logo"><img src="assets/logo.png" alt=""></div>
   <div>
-    <div class="title-sm" style="line-height:1.2;">ExecCal</div>
+    <div class="title-sm" style="line-height:1.2;">P-Roster</div>
     <div class="caption" style="color:var(--muted);">ระบบตารางนัดหมายผู้บริหาร</div>
   </div>
 </header>

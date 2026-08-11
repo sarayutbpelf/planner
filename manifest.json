@@ -1,6 +1,6 @@
 {
-  "name": "ExecCal — ตารางนัดหมายผู้บริหาร",
-  "short_name": "ExecCal",
+  "name": "P-Roster — ตารางนัดหมายผู้บริหาร",
+  "short_name": "P-Roster",
   "description": "ปฏิทินนัดหมายสำหรับผู้บริหาร บันทึก จัดการ และแชร์ตารางงานได้ง่าย",
   "start_url": "./index.html",
   "scope": "./",

@@ -1,5 +1,5 @@
-/* ExecCal service worker — app-shell caching for offline use */
-const CACHE_NAME = "execcal-cache-v3";
+/* P-Roster service worker — app-shell caching for offline use */
+const CACHE_NAME = "proster-cache-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -10,6 +10,7 @@ const APP_SHELL = [
   "./booking.js",
   "./landing.js",
   "./manifest.json",
+  "./assets/logo.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",

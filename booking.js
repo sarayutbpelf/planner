@@ -1,5 +1,5 @@
 /* =========================================================
-   ExecCal — Public appointment request page (no admin access)
+   P-Roster — Public appointment request page (no admin access)
    Reads executives + confirmed/pending appointments from the
    Google Apps Script bridge (read-only for this page, plus one
    write action: requestAppointment) so anyone with the link can
@@ -70,6 +70,120 @@
     });
   }
 
+  /* ============================================================
+     Calendar preview (left column) — read-only timeline of the
+     selected executive's CURRENT WEEK, confirmed appointments only.
+     ============================================================ */
+  const DOW_FULL = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+  const MONTH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+  const MONTH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  const PX_PER_HOUR = 56;
+  const MIN_EVENT_HEIGHT = 30;
+
+  function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+  function fmtISO(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function startOfWeek(d) { const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
+  function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+
+  function layoutColumns(items) {
+    const sorted = items.slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    const colEndTimes = [];
+    const placed = sorted.map(item => {
+      const s = toMinutes(item.start), e = toMinutes(item.end);
+      let col = colEndTimes.findIndex(endT => s >= endT);
+      if (col === -1) { col = colEndTimes.length; colEndTimes.push(e); }
+      else { colEndTimes[col] = e; }
+      return Object.assign({}, item, { col });
+    });
+    return { placed, totalCols: colEndTimes.length || 1 };
+  }
+
+  function dayTimelineHTML(items) {
+    if (items.length === 0) return `<div class="day-empty">ไม่มีนัดหมาย</div>`;
+    let rangeStart = 8 * 60, rangeEnd = 18 * 60;
+    items.forEach(a => {
+      rangeStart = Math.min(rangeStart, Math.floor(toMinutes(a.start) / 60) * 60);
+      rangeEnd = Math.max(rangeEnd, Math.ceil(toMinutes(a.end) / 60) * 60);
+    });
+    const hourCount = (rangeEnd - rangeStart) / 60;
+    const totalHeight = hourCount * PX_PER_HOUR;
+
+    let hoursHTML = "", gridHTML = "";
+    for (let i = 0; i <= hourCount; i++) {
+      const top = i * PX_PER_HOUR;
+      const hh = String(Math.floor((rangeStart + i * 60) / 60) % 24).padStart(2, "0");
+      hoursHTML += `<div class="day-timeline-hour-label" style="top:${top}px;">${hh}:00</div>`;
+      gridHTML += `<div class="day-timeline-gridline" style="top:${top}px;"></div>`;
+    }
+
+    const { placed, totalCols } = layoutColumns(items);
+    const eventsHTML = placed.map(a => {
+      const pending = String(a.status || "").toLowerCase() === "pending";
+      const cls = pending ? "c-cream" : "c-pink";
+      const s = toMinutes(a.start), e = toMinutes(a.end);
+      const top = ((s - rangeStart) / 60) * PX_PER_HOUR;
+      const height = Math.max(((e - s) / 60) * PX_PER_HOUR, MIN_EVENT_HEIGHT);
+      const widthPct = 100 / totalCols;
+      const leftPct = a.col * widthPct;
+      return `<div class="day-timeline-event ${cls}" style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px); ${pending ? "border:2px dashed var(--brand-ochre);" : ""}">
+        <span class="dt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
+        <span class="dt-title">${pending ? "ไม่ว่าง (รออนุมัติ)" : "ไม่ว่าง"}</span>
+      </div>`;
+    }).join("");
+
+    return `<div class="day-timeline" style="height:${totalHeight}px;">
+      <div class="day-timeline-hours" style="height:${totalHeight}px;">${hoursHTML}</div>
+      <div class="day-timeline-track" style="height:${totalHeight}px;">${gridHTML}${eventsHTML}</div>
+    </div>`;
+  }
+
+  function renderCalendarPreview() {
+    if (!selectedExecName) { $("#calendarCol").style.display = "none"; return; }
+    $("#calendarCol").style.display = "";
+    $("#calTitle").textContent = `ตารางของ ${selectedExecName}`;
+
+    const today = startOfDay(new Date());
+    const start = startOfWeek(today);
+    const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    const end = days[6];
+    const label = start.getMonth() === end.getMonth()
+      ? `${start.getDate()}–${end.getDate()} ${MONTH_FULL[start.getMonth()]} ${start.getFullYear() + 543}`
+      : `${start.getDate()} ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear() + 543}`;
+    $("#calWeekLabel").textContent = label;
+
+    const group = personGroupNames(selectedExecName);
+    const weekItems = appointments.filter(a => {
+      const d = new Date(a.date + "T00:00:00");
+      return d >= start && d <= end && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined";
+    });
+
+    if (weekItems.length === 0) {
+      $("#calWeekList").style.display = "none";
+      $("#calEmpty").style.display = "block";
+      return;
+    }
+    $("#calWeekList").style.display = "";
+    $("#calEmpty").style.display = "none";
+
+    $("#calWeekList").innerHTML = days.map(d => {
+      const iso = fmtISO(d);
+      const items = appointments
+        .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
+        .sort((a, b) => a.start.localeCompare(b.start));
+      const isToday = isSameDay(d, today);
+      return `<div class="day-card">
+        <div class="day-card-header ${isToday ? "today" : ""}">
+          <span class="dow">${DOW_FULL[d.getDay()]}</span>
+          <span class="dom">${d.getDate()} ${MONTH_SHORT[d.getMonth()]}</span>
+        </div>
+        <div class="day-card-body" style="${items.length ? "padding:0;" : ""}">
+          ${dayTimelineHTML(items)}
+        </div>
+      </div>`;
+    }).join("");
+  }
+
   async function init() {
     if (!gasUrl) { showState("noLinkState"); return; }
     showState("loadingState");
@@ -92,9 +206,10 @@
     const sel = $("#bkExec");
     sel.innerHTML = executives.map(e => `<option value="${escapeHtml(e.name)}">${escapeHtml(e.name)}</option>`).join("");
     selectedExecName = executives[0] ? executives[0].name : "";
+    renderCalendarPreview();
   }
 
-  $("#bkExec").addEventListener("change", (e) => { selectedExecName = e.target.value; renderAvailability(); });
+  $("#bkExec").addEventListener("change", (e) => { selectedExecName = e.target.value; renderAvailability(); renderCalendarPreview(); });
   $("#bkDate").addEventListener("change", renderAvailability);
   $("#bkStart").addEventListener("change", checkConflict);
   $("#bkEnd").addEventListener("change", checkConflict);
@@ -238,9 +353,11 @@
         submitBtn.textContent = "ส่งคำขอนัดหมาย";
         appointments = data.appointments || appointments;
         renderAvailability();
+        renderCalendarPreview();
         return;
       }
       appointments = data.appointments || appointments;
+      renderCalendarPreview();
       const warnEl = $("#successWarning");
       if (data.warning) {
         warnEl.textContent = "⚠️ " + data.warning;

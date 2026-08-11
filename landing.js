@@ -1,5 +1,5 @@
 /* =========================================================
-   ExecCal — Landing page
+   P-Roster — Landing page
    Shows a read-only preview of this week's CONFIRMED appointments
    (if a Google Sheet link is available) plus the two role cards.
    No editing happens here — that lives in admin.html / booking.html.

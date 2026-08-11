@@ -1,5 +1,5 @@
 /* =========================================================
-   ExecCal — Executive Appointment Calendar (PWA)
+   P-Roster — Executive Appointment Calendar (PWA)
    Vanilla JS, localStorage-backed, JPEG export via html2canvas
    ========================================================= */
 (() => {
@@ -111,7 +111,7 @@
   }
   function apptsForDate(dateISO) {
     return state.appointments
-      .filter(a => a.date === dateISO && isExecVisible(a.execId))
+      .filter(a => a.date === dateISO && a.status !== "declined" && isExecVisible(a.execId))
       .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
   }
   function isExecVisible(execId) {
@@ -174,7 +174,10 @@
       end: String(a.end || "").trim(),
       location: String(a.location || "").trim(),
       notes: String(a.notes || "").trim(),
-      status: (String(a.status || "").trim().toLowerCase() === "pending") ? "pending" : "confirmed",
+      status: (() => {
+        const s = String(a.status || "").trim().toLowerCase();
+        return (s === "pending" || s === "declined") ? s : "confirmed";
+      })(),
       requestedBy: String(a.requestedBy || "").trim(),
       requestedContact: String(a.requestedContact || "").trim(),
       requestNote: String(a.requestNote || "").trim(),
@@ -206,7 +209,7 @@
       toast(`🔔 มีคำขอนัดหมายใหม่รออนุมัติ ${added} รายการ${conflictNote}`);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         try {
-          new Notification("ExecCal — มีคำขอนัดหมายใหม่", {
+          new Notification("P-Roster — มีคำขอนัดหมายใหม่", {
             body: `มีคำขอนัดหมายรออนุมัติเพิ่มขึ้น ${added} รายการ (รวม ${n} รายการ)${hasConflict ? " — บางรายการเวลาซ้อนทับ ต้องพิจารณาก่อนอนุมัติ" : ""}`,
             icon: "icons/icon-192.png",
           });
@@ -601,7 +604,8 @@
     const id = $("#apptId").value;
     if (!id) return;
     if (!confirm("ปฏิเสธคำขอนัดหมายนี้หรือไม่?")) return;
-    state.appointments = state.appointments.filter(a => a.id !== id);
+    const local = state.appointments.find(a => a.id === id);
+    if (local) local.status = "declined";
     saveState();
     closeSheet("apptOverlay");
     renderAll();
@@ -1077,27 +1081,40 @@
     const n = pendingCount();
     const badgeTop = $("#pendingBadge");
     const badgeMenu = $("#pendingMenuCount");
+    const banner = $("#pendingBanner");
     if (n > 0) {
       badgeTop.textContent = n > 9 ? "9+" : String(n);
       badgeTop.style.display = "flex";
       badgeMenu.textContent = String(n);
       badgeMenu.style.display = "inline-flex";
+      $("#pendingBannerText").textContent = `🔔 มีคำขอนัดหมายใหม่รออนุมัติ ${n} รายการ`;
+      banner.style.display = "flex";
     } else {
       badgeTop.style.display = "none";
       badgeMenu.style.display = "none";
+      banner.style.display = "none";
     }
   }
+  $("#pendingBanner").addEventListener("click", () => {
+    renderPendingList();
+    openSheet("pendingOverlay");
+  });
 
   function renderPendingList() {
     const listEl = $("#pendingList");
     const pending = state.appointments
       .filter(a => a.status === "pending")
       .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
-    if (pending.length === 0) {
+    const declined = state.appointments
+      .filter(a => a.status === "declined")
+      .sort((a, b) => (b.date + b.start).localeCompare(a.date + a.start)); // most recent first
+
+    if (pending.length === 0 && declined.length === 0) {
       listEl.innerHTML = `<div class="empty-state" style="padding:var(--lg) 0;"><div class="em-icon">✅</div><p class="body-sm">ไม่มีคำขอนัดหมายที่รออนุมัติ</p></div>`;
       return;
     }
-    listEl.innerHTML = pending.map(a => {
+
+    const pendingHTML = pending.length === 0 ? "" : pending.map(a => {
       const ex = execById(a.execId);
       const d = parseISO(a.date);
       // Flag if this request overlaps ANY other appointment (confirmed or another
@@ -1135,6 +1152,32 @@
         </div>
       </div>`;
     }).join("");
+
+    const declinedHTML = declined.length === 0 ? "" : `
+      <div class="caption-upper" style="color:var(--muted); margin:${pending.length ? "var(--lg)" : "0"} 0 4px;">ถูกปฏิเสธแล้ว</div>
+      ${declined.map(a => {
+        const ex = execById(a.execId);
+        const d = parseISO(a.date);
+        return `<div class="testimonial-card" data-id="${a.id}" style="opacity:.5;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+            <div>
+              <div class="title-sm">${escapeHtml(a.title)}</div>
+              <div class="body-sm">${DOW_FULL[d.getDay()]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear() + 543} · ${a.start}–${a.end}</div>
+              <div class="body-sm">👔 ${escapeHtml(ex ? ex.name : "—")}</div>
+              ${a.requestedBy ? `<div class="body-sm">👤 ${escapeHtml(a.requestedBy)}</div>` : ""}
+            </div>
+            <span class="badge-pill" style="background:var(--hairline); color:var(--muted); flex-shrink:0;">ถูกปฏิเสธ</span>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:var(--sm);">
+            <button class="btn btn-secondary btn-sm" data-act="undecline" style="flex:1;">↩ เปลี่ยนเป็นรออนุมัติ</button>
+            <button class="btn btn-danger btn-sm" data-act="purge" style="flex:1;">ลบถาวร</button>
+          </div>
+        </div>`;
+      }).join("")}
+    `;
+
+    listEl.innerHTML = pendingHTML + declinedHTML;
+
     listEl.querySelectorAll("[data-act='approve']").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.closest("[data-id]").dataset.id;
@@ -1145,12 +1188,40 @@
       btn.addEventListener("click", () => {
         const id = btn.closest("[data-id]").dataset.id;
         if (!confirm("ปฏิเสธคำขอนัดหมายนี้หรือไม่?")) return;
-        state.appointments = state.appointments.filter(a => a.id !== id);
+        const local = state.appointments.find(a => a.id === id);
+        if (local) local.status = "declined";
         saveState();
         renderAll();
         renderPendingList(); renderPendingBadge();
         toast("ปฏิเสธคำขอนัดหมายแล้ว");
         pushToSheet("declineAppointment", { id });
+      });
+    });
+    listEl.querySelectorAll("[data-act='undecline']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("[data-id]").dataset.id;
+        const local = state.appointments.find(a => a.id === id);
+        if (local) local.status = "pending";
+        saveState();
+        renderAll();
+        renderPendingList(); renderPendingBadge();
+        toast("เปลี่ยนเป็นรออนุมัติแล้ว");
+        pushToSheet("upsertAppointment", (() => {
+          const ex = execById(local.execId);
+          return { id: local.id, execName: ex ? ex.name : "", date: local.date, start: local.start, end: local.end, title: local.title, location: local.location, notes: local.notes, requestedBy: local.requestedBy, requestedContact: local.requestedContact, requestNote: local.requestNote };
+        })());
+      });
+    });
+    listEl.querySelectorAll("[data-act='purge']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("[data-id]").dataset.id;
+        if (!confirm("ลบรายการนี้ออกถาวรหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+        state.appointments = state.appointments.filter(a => a.id !== id);
+        saveState();
+        renderAll();
+        renderPendingList(); renderPendingBadge();
+        toast("ลบรายการแล้ว");
+        pushToSheet("deleteAppointment", { id });
       });
     });
   }
@@ -1262,11 +1333,41 @@
     return x;
   }
 
+  function weekOptionLabel(monday) {
+    const sunday = addDays(monday, 6);
+    const label = monday.getMonth() === sunday.getMonth()
+      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
+      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+    return label;
+  }
+
+  function populatePosterWeeks(selectedMonday) {
+    const sel = $("#posterWeekStart");
+    const currentMonday = mondayOf(new Date());
+    const selectedIso = fmtISO(selectedMonday);
+    let optionsHTML = "";
+    let hasSelected = false;
+    // 4 weeks back through 8 weeks ahead of today, always including whichever
+    // week the calendar is currently anchored to even if outside that range.
+    for (let i = -4; i <= 8; i++) {
+      const monday = addDays(currentMonday, i * 7);
+      const iso = fmtISO(monday);
+      const isThisWeek = i === 0;
+      const selectedAttr = iso === selectedIso ? " selected" : "";
+      if (selectedAttr) hasSelected = true;
+      optionsHTML += `<option value="${iso}"${selectedAttr}>${weekOptionLabel(monday)}${isThisWeek ? " (สัปดาห์นี้)" : ""}</option>`;
+    }
+    if (!hasSelected) {
+      optionsHTML = `<option value="${selectedIso}" selected>${weekOptionLabel(selectedMonday)}</option>` + optionsHTML;
+    }
+    sel.innerHTML = optionsHTML;
+  }
+
   function openPosterSheet() {
     if (state.executives.length === 0) { toast("กรุณาเพิ่มผู้บริหารก่อน"); closeSheet("menuOverlay"); openExecSheet(); return; }
     const options = state.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
-    $("#posterExec").innerHTML = `<option value="ALL">📋 ทุกตำแหน่ง (รวมทุกคน)</option>` + options;
-    $("#posterWeekStart").value = fmtISO(mondayOf(anchor));
+    $("#posterExec").innerHTML = `<option value="ALL">📋 ทุกตำแหน่ง</option>` + options;
+    populatePosterWeeks(mondayOf(anchor));
     closeSheet("menuOverlay");
     openSheet("posterOverlay");
   }
@@ -1289,10 +1390,7 @@
     toast("กำลังสร้างตารางปฏิบัติงาน...");
 
     const today = startOfDay(new Date());
-    const sunday = addDays(monday, 6);
-    const rangeLabel = monday.getMonth() === sunday.getMonth()
-      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
-      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+    const rangeLabel = weekOptionLabel(monday);
     const posterTitle = isAll ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน" : `ตารางปฏิบัติงาน ${ex.name}`;
 
     // Reuse the exact same visual language as the live calendar (same CSS
@@ -1344,7 +1442,7 @@
     wrap.innerHTML = `
       <div style="text-align:center; margin-bottom:28px;">
         <div style="display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;">
-          <div style="width:52px; height:52px; border-radius:var(--r-lg); background:var(--primary); color:var(--on-primary); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; flex-shrink:0;">EC</div>
+          <img src="assets/logo.png" alt="" style="width:52px; height:52px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
           <h1 class="display-sm" style="margin:0; font-size:32px;">${escapeHtml(posterTitle)}</h1>
         </div>
         <p class="body-sm" style="color:var(--muted); margin:0;">สัปดาห์วันที่ ${rangeLabel}</p>
@@ -1356,6 +1454,16 @@
     `;
     document.body.appendChild(wrap);
     try {
+      // Wait for the logo <img> to actually finish loading before capturing —
+      // html2canvas would otherwise sometimes grab it mid-load and render blank.
+      const logoImg = wrap.querySelector("img");
+      if (logoImg && !logoImg.complete) {
+        await new Promise((resolve) => {
+          logoImg.addEventListener("load", resolve, { once: true });
+          logoImg.addEventListener("error", resolve, { once: true });
+          setTimeout(resolve, 1500); // fallback so a slow/broken image never blocks the export
+        });
+      }
       const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
       const link = document.createElement("a");
       link.download = `${posterTitle}-${fmtISO(monday)}.jpg`;

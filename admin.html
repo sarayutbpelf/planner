@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>ExecCal — สำหรับผู้บริหาร</title>
+<title>P-Roster — สำหรับผู้บริหาร</title>
 <meta name="description" content="ปฏิทินนัดหมายสำหรับผู้บริหาร บันทึก จัดการ และแชร์ตารางงานได้ง่าย">
 <meta name="theme-color" content="#fffaf0">
 <link rel="manifest" href="manifest.json">
@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="ExecCal">
+<meta name="apple-mobile-web-app-title" content="P-Roster">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -27,8 +27,8 @@
   <!-- Top Nav -->
   <header class="top-nav">
     <div class="brand">
-      <a href="index.html" class="brand-mark" style="text-decoration:none; display:flex; align-items:center; justify-content:center;">EC</a>
-      <div class="brand-word">ExecCal<small>ตารางนัดหมายผู้บริหาร</small></div>
+      <a href="index.html" class="brand-mark" style="text-decoration:none; display:flex; align-items:center; justify-content:center; overflow:hidden; padding:0;"><img src="assets/logo.png" alt="" style="width:100%; height:100%; object-fit:cover;"></a>
+      <div class="brand-word">P-Roster<small>ตารางนัดหมายผู้บริหาร</small></div>
     </div>
     <div style="display:flex; align-items:center; gap:8px;">
       <button class="icon-btn" id="btnExport" title="ดาวน์โหลดตารางปฏิบัติงาน" aria-label="ดาวน์โหลดตารางปฏิบัติงาน">
@@ -66,6 +66,11 @@
 
   <!-- Calendar -->
   <main id="calendar-view">
+    <div id="pendingBanner" class="pending-banner" style="display:none;">
+      <span id="pendingBannerText"></span>
+      <span class="pending-banner-arrow">→</span>
+    </div>
+
     <div id="exportRoot">
       <!-- Week: mobile list -->
       <div class="week-day-list" id="weekDayList"></div>
@@ -86,8 +91,6 @@
   </main>
 
   <button class="fab" id="btnFab" aria-label="เพิ่มนัดหมาย">+</button>
-
-  <footer class="app-footer">ExecCal · ข้อมูลถูกบันทึกไว้ในเบราว์เซอร์นี้เท่านั้น</footer>
 </div>
 
 <!-- ============ Appointment Sheet ============ -->
@@ -306,8 +309,8 @@
         <select class="text-input" id="posterExec" required></select>
       </div>
       <div class="field">
-        <label for="posterWeekStart">สัปดาห์ที่เริ่มวันจันทร์</label>
-        <input class="text-input" type="date" id="posterWeekStart" required>
+        <label for="posterWeekStart">สัปดาห์</label>
+        <select class="text-input" id="posterWeekStart" required></select>
       </div>
       <button type="submit" class="btn btn-primary btn-block">🖨️ ดาวน์โหลดรูปภาพ</button>
     </form>
