@@ -418,15 +418,17 @@
       const iso = fmtISO(d);
       const items = apptsForDate(iso);
       const isToday = isSameDay(d, today);
-      return `<div class="day-card">
+      const holiday = holidayFor(iso);
+      return `<div class="day-card${holiday ? " holiday" : ""}">
         <div class="day-card-header ${isToday ? "today" : ""}">
           <div>
             <span class="dow">${DOW_FULL[d.getDay()]}</span>
+            ${holiday ? `<span class="badge-pill" style="background:var(--brand-ochre); color:var(--ink); margin-left:6px;">🎌 ${escapeHtml(holiday.label)}</span>` : ""}
           </div>
           <span class="dom">${d.getDate()} ${MONTH_SHORT[d.getMonth()]}</span>
         </div>
         <div class="day-card-body" data-date="${iso}">
-          ${items.length ? items.map(a => apptCardHTML(a)).join("") : `<div class="day-empty">ไม่มีนัดหมาย</div>`}
+          ${items.length ? items.map(a => apptCardHTML(a)).join("") : `<div class="day-empty">${holiday ? "วันหยุดราชการ" : "ไม่มีนัดหมาย"}</div>`}
         </div>
       </div>`;
     }).join("");
@@ -442,16 +444,19 @@
     let gridHTML = `<div class="corner"></div>`;
     days.forEach(d => {
       const isToday = isSameDay(d, today);
-      gridHTML += `<div class="wk-dow ${isToday ? "today" : ""}">
+      const holiday = holidayFor(fmtISO(d));
+      gridHTML += `<div class="wk-dow ${isToday ? "today" : ""}${holiday ? " holiday" : ""}" ${holiday ? `title="${escapeHtml(holiday.label)}"` : ""}>
         <span class="dow">${DOW_SHORT[d.getDay()]}</span>
         <span class="dom">${d.getDate()}</span>
+        ${holiday ? `<span class="wk-holiday-tag">🎌</span>` : ""}
       </div>`;
     });
     gridHTML += `<div class="hour-label"></div>`;
     days.forEach(d => {
       const iso = fmtISO(d);
       const items = apptsForDate(iso);
-      gridHTML += `<div class="day-col" data-date="${iso}">${items.map(a => apptCardHTML(a)).join("")}</div>`;
+      const holiday = holidayFor(iso);
+      gridHTML += `<div class="day-col${holiday ? " holiday" : ""}" data-date="${iso}">${items.map(a => apptCardHTML(a)).join("")}${(!items.length && holiday) ? `<div class="day-empty" style="padding:6px 2px;">วันหยุดราชการ</div>` : ""}</div>`;
     });
     weekGrid.innerHTML = gridHTML;
     bindApptCardClicks(weekGrid);
@@ -478,6 +483,7 @@
       const items = apptsForDate(iso);
       const otherMonth = d.getMonth() !== anchor.getMonth();
       const isToday = isSameDay(d, today);
+      const holiday = holidayFor(iso);
       const dots = items.slice(0, 4).map(a => {
         const ex = execById(a.execId);
         const key = ex ? ex.colorKey : "cream";
@@ -485,7 +491,7 @@
         return `<span class="month-dot" style="background:${varColor}"></span>`;
       }).join("");
       const more = items.length > 4 ? `<span class="month-more">+${items.length - 4}</span>` : "";
-      html += `<div class="month-cell ${otherMonth ? "other-month" : ""} ${isToday ? "today" : ""}" data-date="${iso}">
+      html += `<div class="month-cell ${otherMonth ? "other-month" : ""} ${isToday ? "today" : ""}${holiday ? " holiday" : ""}" data-date="${iso}" ${holiday ? `title="${escapeHtml(holiday.label)}"` : ""}>
         <span class="month-date">${d.getDate()}</span>
         <div class="month-dots">${dots}${more}</div>
       </div>`;
@@ -910,8 +916,10 @@
     const d = parseISO(dateISO);
     $("#daySheetTitle").textContent = `${DOW_FULL[d.getDay()]} ${d.getDate()} ${MONTH_FULL[d.getMonth()]} ${d.getFullYear() + 543}`;
     const items = apptsForDate(dateISO);
+    const holiday = holidayFor(dateISO);
     const listEl = $("#dayList");
-    listEl.innerHTML = items.length ? items.map(a => apptCardHTML(a)).join("") : `<div class="day-empty">ไม่มีนัดหมายในวันนี้</div>`;
+    const holidayBannerHTML = holiday ? `<div class="badge-pill" style="background:var(--brand-ochre); color:var(--ink); margin-bottom:10px;">🎌 ${escapeHtml(holiday.label)}</div>` : "";
+    listEl.innerHTML = holidayBannerHTML + (items.length ? items.map(a => apptCardHTML(a)).join("") : `<div class="day-empty">ไม่มีนัดหมายในวันนี้</div>`);
     bindApptCardClicks(listEl);
     openSheet("dayOverlay");
   }
@@ -1235,6 +1243,75 @@
   /* ============================================================
      Holiday manager sheet
      ============================================================ */
+  // Official Thai government holidays — 2569 (2026) is the confirmed Cabinet-
+  // approved list; 2570 (2027) is the provisional forecast (fixed dates are
+  // certain, but the lunar Buddhist holy days are astronomical estimates
+  // until the Cabinet publishes the official list closer to the year).
+  // Source: Royal Thai Government Gazette / cross-checked against Kapook &
+  // Ask-A-Librarian@KU calendars, checked August 2026.
+  const THAI_OFFICIAL_HOLIDAYS = [
+    // 2569 / 2026 — confirmed
+    { date: "2026-01-01", label: "วันขึ้นปีใหม่" },
+    { date: "2026-01-02", label: "วันหยุดราชการเพิ่มเติมตามมติ ครม." },
+    { date: "2026-03-03", label: "วันมาฆบูชา" },
+    { date: "2026-04-06", label: "วันจักรี" },
+    { date: "2026-04-13", label: "วันสงกรานต์" },
+    { date: "2026-04-14", label: "วันสงกรานต์" },
+    { date: "2026-04-15", label: "วันสงกรานต์" },
+    { date: "2026-05-04", label: "วันฉัตรมงคล" },
+    { date: "2026-05-13", label: "วันพืชมงคล" },
+    { date: "2026-05-31", label: "วันวิสาขบูชา" },
+    { date: "2026-06-01", label: "วันหยุดชดเชยวันวิสาขบูชา" },
+    { date: "2026-06-03", label: "วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าสุทิดาฯ พระบรมราชินี" },
+    { date: "2026-07-28", label: "วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระวชิรเกล้าเจ้าอยู่หัว" },
+    { date: "2026-07-29", label: "วันอาสาฬหบูชา" },
+    { date: "2026-07-30", label: "วันเข้าพรรษา" },
+    { date: "2026-08-12", label: "วันแม่แห่งชาติ" },
+    { date: "2026-10-13", label: "วันนวมินทรมหาราช" },
+    { date: "2026-10-23", label: "วันปิยมหาราช" },
+    { date: "2026-12-05", label: "วันพ่อแห่งชาติ" },
+    { date: "2026-12-07", label: "วันหยุดชดเชยวันพ่อแห่งชาติ" },
+    { date: "2026-12-10", label: "วันรัฐธรรมนูญ" },
+    { date: "2026-12-31", label: "วันสิ้นปี" },
+    // 2570 / 2027 — provisional (ตรวจสอบวันหยุดจันทรคติอีกครั้งเมื่อ ครม. ประกาศทางการ)
+    { date: "2027-01-01", label: "วันขึ้นปีใหม่" },
+    { date: "2027-02-21", label: "วันมาฆบูชา (ชั่วคราว)" },
+    { date: "2027-02-22", label: "วันหยุดชดเชยวันมาฆบูชา (ชั่วคราว)" },
+    { date: "2027-04-06", label: "วันจักรี" },
+    { date: "2027-04-13", label: "วันสงกรานต์" },
+    { date: "2027-04-14", label: "วันสงกรานต์" },
+    { date: "2027-04-15", label: "วันสงกรานต์" },
+    { date: "2027-05-01", label: "วันแรงงานแห่งชาติ" },
+    { date: "2027-05-03", label: "วันหยุดชดเชยวันแรงงานแห่งชาติ" },
+    { date: "2027-05-20", label: "วันวิสาขบูชา (ชั่วคราว)" },
+    { date: "2027-06-03", label: "วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าสุทิดาฯ พระบรมราชินี" },
+    { date: "2027-07-18", label: "วันอาสาฬหบูชา (ชั่วคราว)" },
+    { date: "2027-07-19", label: "วันเข้าพรรษา (ชั่วคราว)" },
+    { date: "2027-07-28", label: "วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระวชิรเกล้าเจ้าอยู่หัว" },
+    { date: "2027-08-12", label: "วันแม่แห่งชาติ" },
+    { date: "2027-10-13", label: "วันนวมินทรมหาราช" },
+    { date: "2027-10-23", label: "วันปิยมหาราช" },
+    { date: "2027-10-26", label: "วันหยุดชดเชยวันปิยมหาราช" },
+    { date: "2027-12-05", label: "วันพ่อแห่งชาติ" },
+    { date: "2027-12-06", label: "วันหยุดชดเชยวันพ่อแห่งชาติ" },
+    { date: "2027-12-10", label: "วันรัฐธรรมนูญ" },
+    { date: "2027-12-31", label: "วันสิ้นปี" },
+  ];
+
+  $("#btnAddThaiHolidays").addEventListener("click", () => {
+    if (!confirm(`เพิ่มวันหยุดราชการไทยประจำปี 2569–2570 จำนวน ${THAI_OFFICIAL_HOLIDAYS.length} รายการหรือไม่? (วันที่ซ้ำกับที่มีอยู่แล้วจะถูกอัปเดตทับด้วยชื่อทางการ)`)) return;
+    THAI_OFFICIAL_HOLIDAYS.forEach(h => {
+      const idx = state.holidays.findIndex(x => x.date === h.date);
+      if (idx >= 0) state.holidays[idx] = { date: h.date, label: h.label };
+      else state.holidays.push({ date: h.date, label: h.label });
+    });
+    saveState();
+    renderHolidayList();
+    renderAll();
+    toast(`เพิ่มวันหยุดราชการแล้ว ${THAI_OFFICIAL_HOLIDAYS.length} รายการ`);
+    pushToSheet("bulkUpsertHolidays", { holidays: THAI_OFFICIAL_HOLIDAYS });
+  });
+
   function renderHolidayList() {
     const listEl = $("#holidayList");
     const customs = state.holidays.slice().sort((a, b) => a.date.localeCompare(b.date));

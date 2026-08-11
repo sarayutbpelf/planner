@@ -217,6 +217,7 @@ a{color:inherit;}
   border-radius:var(--r-lg);
   overflow:hidden;
 }
+.day-card.holiday{ background:#fdeaf0; }
 .day-card-header{
   padding:var(--sm) var(--md);
   display:flex; align-items:center; justify-content:space-between;
@@ -280,6 +281,9 @@ a{color:inherit;}
 }
 .month-cell.other-month{background:var(--surface-soft);}
 .month-cell.other-month .month-date{color:var(--muted-soft);}
+.month-cell.holiday{ background:#fdeaf0; }
+.month-cell.holiday.other-month{ background:#fdeaf0; opacity:.6; }
+.month-cell.holiday .month-date{ color:#c23a5e; }
 .month-date{font-size:13px; font-weight:600; width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:50%;}
 .month-cell.today .month-date{background:var(--ink); color:var(--on-primary);}
 .month-dots{display:flex; flex-wrap:wrap; gap:3px;}
@@ -390,11 +394,14 @@ footer.app-footer{
   .week-grid .wk-dow{
     background:var(--surface-soft); text-align:center; padding:10px 4px;
   }
+  .week-grid .wk-dow.holiday{ background:#fdeaf0; }
   .week-grid .wk-dow .dow{font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.5px; text-transform:uppercase; display:block;}
   .week-grid .wk-dow .dom{font-family:var(--font-display); font-weight:500; font-size:20px; margin-top:2px; display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; border-radius:50%;}
   .week-grid .wk-dow.today .dom{background:var(--ink); color:var(--on-primary);}
+  .week-grid .wk-dow .wk-holiday-tag{ display:block; font-size:11px; margin-top:2px; }
   .week-grid .hour-label{background:var(--canvas); font-size:11px; color:var(--muted-soft); text-align:right; padding:2px 6px 0 0;}
   .week-grid .day-col{background:var(--canvas); position:relative; min-height:56px; padding:2px;}
+  .week-grid .day-col.holiday{ background:#fdeaf0; }
   .week-grid .day-col .appt-card{margin-bottom:3px; padding:8px 10px;}
   .week-grid .day-col .appt-card .appt-title{font-size:13px;}
   .week-grid .day-col .appt-card .appt-time{font-size:10px;}

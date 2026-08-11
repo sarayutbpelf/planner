@@ -395,6 +395,14 @@ function doPost(e) {
     } else if (action === 'upsertHoliday') {
       upsertHolidayRow_(holidaySheet, payload.date, payload.label || 'วันหยุดราชการ');
 
+    } else if (action === 'bulkUpsertHolidays') {
+      // Used for bulk-adding a whole year's worth of official holidays in one
+      // round trip instead of one request per date.
+      const list = Array.isArray(payload.holidays) ? payload.holidays : [];
+      list.forEach(h => {
+        if (h && h.date) upsertHolidayRow_(holidaySheet, h.date, h.label || 'วันหยุดราชการ');
+      });
+
     } else if (action === 'deleteHoliday') {
       deleteHolidayRow_(holidaySheet, payload.date);
 
