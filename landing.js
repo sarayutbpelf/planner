@@ -110,18 +110,18 @@
     return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title)}</small></div>`;
   }
 
-  function scheduleTableHTML(monday, executives, appointments, holidays) {
+  function scheduleTableHTML(days, executives, appointments, holidays) {
     const execById = (id) => executives.find(e => e.id === id);
     const today = startOfDay(new Date());
+    const showDateNumber = days.length > 7; // month view: disambiguate repeated weekday names
 
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
-    TABLE_DOW.forEach((d, i) => {
-      const dayOffset = d.key; // Sunday(0) is now the first column
-      const date = addDays(monday, dayOffset);
+    days.forEach((date, i) => {
       const iso = fmtISO(date);
       const holiday = holidayFor(iso, holidays);
       const isToday = isSameDay(date, today);
       const alt = i % 2 === 1 ? " alt" : "";
+      const label = DOW_FULL[date.getDay()] + (showDateNumber ? ` ${date.getDate()}` : "");
 
       const items = appointments.filter(a => a.date === iso).sort((a, b) => a.start.localeCompare(b.start));
       const morning = items.filter(a => toMinutes(a.start) < 12 * 60);
@@ -133,7 +133,7 @@
         return list.map(a => apptChipHTML(a, execById)).join("");
       }
 
-      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${d.label}</div>`;
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${label}</div>`;
       rowsHTML += `<div class="st-cell${alt}">${cellHTML(morning)}</div>`;
       rowsHTML += `<div class="st-cell${alt}">${cellHTML(afternoon)}</div>`;
     });
@@ -148,6 +148,7 @@
   }
 
   function renderWeek(executives, appointments, holidays) {
+    $("#landingViewLabel").textContent = "สัปดาห์นี้";
     const today = startOfDay(new Date());
     const monday = mondayOf(today);
     const sunday = addDays(monday, 6);
@@ -166,10 +167,57 @@
       return;
     }
 
-    $("#landingWeekList").innerHTML = scheduleTableHTML(monday, executives, appointments, holidays);
+    const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    $("#landingWeekList").innerHTML = scheduleTableHTML(days, executives, appointments, holidays);
     showList();
     $("#btnLandingDownload").style.display = "flex";
   }
+
+  function renderMonth(executives, appointments, holidays) {
+    $("#landingViewLabel").textContent = "";
+    const today = startOfDay(new Date());
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    $("#landingWeekLabel").textContent = `${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+
+    lastData = { monday: mondayOf(today), executives, appointments, holidays }; // poster download stays week-based
+
+    const totalAppts = appointments.filter(a => {
+      const d = new Date(a.date + "T00:00:00");
+      return d >= first && d <= last;
+    });
+
+    if (totalAppts.length === 0 && holidays.every(h => { const d = new Date(h.date + "T00:00:00"); return !(d >= first && d <= last); })) {
+      showEmpty("เดือนนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว");
+      $("#btnLandingDownload").style.display = "none";
+      return;
+    }
+
+    const days = [];
+    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+    $("#landingWeekList").innerHTML = scheduleTableHTML(days, executives, appointments, holidays);
+    showList();
+    $("#btnLandingDownload").style.display = "flex";
+  }
+
+  // View toggle (รายสัปดาห์ / รายเดือน) — defaults to week.
+  let currentView = "week";
+  let rawData = null;
+  function rerenderCurrentView() {
+    if (!rawData) return;
+    if (currentView === "week") renderWeek(rawData.executives, rawData.appointments, rawData.holidays);
+    else renderMonth(rawData.executives, rawData.appointments, rawData.holidays);
+  }
+  document.querySelectorAll(".view-switch button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentView = btn.dataset.view;
+      document.querySelectorAll(".view-switch button").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", b === btn ? "true" : "false");
+      });
+      rerenderCurrentView();
+    });
+  });
 
   // Today's location summary — shows, at a glance, where each executive with
   // a confirmed appointment today will be and when (chronological, across
@@ -395,6 +443,7 @@
         label: String(h.label || "วันหยุดราชการ").trim(),
       })).filter(h => h.date);
 
+      rawData = { executives, appointments, holidays };
       renderWeek(executives, appointments, holidays);
       renderTodaySummary(executives, appointments, holidays);
     } catch (err) {

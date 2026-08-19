@@ -79,12 +79,16 @@
     <div class="landing-calendar-card">
       <div class="landing-calendar-header">
         <div>
-          <div class="title-md">ตารางนัดหมายสัปดาห์นี้</div>
+          <div class="title-md">ตารางนัดหมาย<span id="landingViewLabel">สัปดาห์นี้</span></div>
           <div class="body-sm" id="landingWeekLabel" style="color:var(--muted);">—</div>
         </div>
         <button class="icon-btn" id="btnLandingDownload" title="ดาวน์โหลดตารางปฏิบัติงาน" aria-label="ดาวน์โหลดตารางปฏิบัติงาน" style="display:none;">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
+      </div>
+      <div class="view-switch" role="tablist" aria-label="มุมมองตาราง" style="margin-bottom:var(--md);">
+        <button data-view="week" class="active" role="tab" aria-selected="true" id="btnViewWeek">รายสัปดาห์</button>
+        <button data-view="month" role="tab" aria-selected="false" id="btnViewMonth">รายเดือน</button>
       </div>
       <div id="landingLoading" class="body-sm" style="color:var(--muted); padding:var(--lg) 0; text-align:center;">กำลังโหลดตารางนัดหมาย...</div>
       <div id="landingWeekList" style="display:none; overflow-x:auto;"></div>
