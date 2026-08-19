@@ -49,6 +49,10 @@
       <div class="booking-calendar-card">
         <div class="title-md" id="calTitle">ตารางนัดหมาย</div>
         <div class="body-sm" id="calWeekLabel" style="color:var(--muted); margin-bottom:var(--md);">—</div>
+        <div class="view-switch" role="tablist" aria-label="มุมมองตาราง" style="margin-bottom:var(--md);">
+          <button data-view="week" class="active" role="tab" aria-selected="true" id="btnCalViewWeek">รายสัปดาห์</button>
+          <button data-view="month" role="tab" aria-selected="false" id="btnCalViewMonth">รายเดือน</button>
+        </div>
         <div id="calWeekList" style="overflow-x:auto;"></div>
         <div id="calEmpty" class="landing-empty" style="display:none;">
           <div class="em-icon" style="font-size:32px; margin-bottom:8px;">🗓️</div>

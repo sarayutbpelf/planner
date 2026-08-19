@@ -112,16 +112,16 @@
     return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${pending ? "ไม่ว่าง (รออนุมัติ)" : "ไม่ว่าง"}</small></div>`;
   }
 
-  function scheduleTableHTML(monday, group) {
+  function scheduleTableHTML(days, group) {
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
     const today = startOfDay(new Date());
-    TABLE_DOW.forEach((d, i) => {
-      const dayOffset = d.key; // Sunday(0) is now the first column
-      const date = addDays(monday, dayOffset);
+    const showDateNumber = days.length > 7; // month view: disambiguate repeated weekday names
+    days.forEach((date, i) => {
       const iso = fmtISO(date);
       const holiday = holidayFor(iso);
       const isToday = isSameDay(date, today);
       const alt = i % 2 === 1 ? " alt" : "";
+      const label = DOW_FULL[date.getDay()] + (showDateNumber ? ` ${date.getDate()}` : "");
 
       const items = appointments
         .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
@@ -135,40 +135,65 @@
         return list.map(busyChipHTML).join("");
       }
 
-      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${d.label}</div>`;
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${label}</div>`;
       rowsHTML += `<div class="st-cell${alt}">${cellHTML(morning)}</div>`;
       rowsHTML += `<div class="st-cell${alt}">${cellHTML(afternoon)}</div>`;
     });
     return `<div class="schedule-table">${rowsHTML}</div>`;
   }
 
+  // View toggle (รายสัปดาห์ / รายเดือน) — defaults to week, mirrors index.html's landing page.
+  let calView = "week";
+  document.querySelectorAll(".view-switch button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      calView = btn.dataset.view;
+      document.querySelectorAll(".view-switch button").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", b === btn ? "true" : "false");
+      });
+      renderCalendarPreview();
+    });
+  });
+
   function renderCalendarPreview() {
     if (!selectedExecName) { $("#calendarCol").style.display = "none"; return; }
     $("#calendarCol").style.display = "";
     $("#calTitle").textContent = `ตารางของ ${selectedExecName}`;
+    const group = personGroupNames(selectedExecName);
 
-    const monday = mondayOf(new Date());
-    const sunday = addDays(monday, 6);
-    const label = monday.getMonth() === sunday.getMonth()
-      ? `${monday.getDate()}–${sunday.getDate()} ${MONTH_FULL[monday.getMonth()]} ${monday.getFullYear() + 543}`
-      : `${monday.getDate()} ${MONTH_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_SHORT[sunday.getMonth()]} ${sunday.getFullYear() + 543}`;
+    let rangeStart, rangeEnd, days, label;
+    if (calView === "week") {
+      rangeStart = mondayOf(new Date());
+      rangeEnd = addDays(rangeStart, 6);
+      days = Array.from({ length: 7 }, (_, i) => addDays(rangeStart, i));
+      label = rangeStart.getMonth() === rangeEnd.getMonth()
+        ? `${rangeStart.getDate()}–${rangeEnd.getDate()} ${MONTH_FULL[rangeStart.getMonth()]} ${rangeStart.getFullYear() + 543}`
+        : `${rangeStart.getDate()} ${MONTH_SHORT[rangeStart.getMonth()]} – ${rangeEnd.getDate()} ${MONTH_SHORT[rangeEnd.getMonth()]} ${rangeEnd.getFullYear() + 543}`;
+    } else {
+      const today = startOfDay(new Date());
+      rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      rangeEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      days = [];
+      for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+      label = `${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+    }
     $("#calWeekLabel").textContent = label;
 
-    const group = personGroupNames(selectedExecName);
-    const weekItems = appointments.filter(a => {
+    const rangeItems = appointments.filter(a => {
       const d = new Date(a.date + "T00:00:00");
-      return d >= monday && d <= sunday && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined";
+      return d >= rangeStart && d <= rangeEnd && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined";
     });
-    const weekHoliday = holidays.some(h => { const d = new Date(h.date + "T00:00:00"); return d >= monday && d <= sunday; });
+    const rangeHoliday = holidays.some(h => { const d = new Date(h.date + "T00:00:00"); return d >= rangeStart && d <= rangeEnd; });
 
-    if (weekItems.length === 0 && !weekHoliday) {
+    if (rangeItems.length === 0 && !rangeHoliday) {
       $("#calWeekList").style.display = "none";
       $("#calEmpty").style.display = "block";
+      $("#calEmpty p").textContent = calView === "week" ? "สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว" : "เดือนนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว";
       return;
     }
     $("#calWeekList").style.display = "";
     $("#calEmpty").style.display = "none";
-    $("#calWeekList").innerHTML = scheduleTableHTML(monday, group);
+    $("#calWeekList").innerHTML = scheduleTableHTML(days, group);
   }
 
   async function init() {
