@@ -106,10 +106,33 @@
     return null;
   }
 
-  function busyChipHTML(a) {
+  function apptChipHTML(a) {
     const pending = String(a.status || "").toLowerCase() === "pending";
     const cls = pending ? "c-cream pending" : "c-pink";
-    return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${pending ? "ไม่ว่าง (รออนุมัติ)" : "ไม่ว่าง"}</small></div>`;
+    return `<div class="st-chip ${cls}" data-appt-id="${escapeHtml(a.id || "")}" style="cursor:pointer;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title || "")}${pending ? " (รออนุมัติ)" : ""}</small></div>`;
+  }
+
+  // Read-only detail popup — same information the admin app shows, no edit controls.
+  function showApptDetail(a) {
+    const d = new Date(a.date + "T00:00:00");
+    const pending = String(a.status || "").toLowerCase() === "pending";
+    $("#apptDetailBody").innerHTML = `
+      <div class="title-md" style="margin-bottom:4px;">${escapeHtml(a.title || "")}</div>
+      <p class="body-sm" style="color:var(--muted); margin-bottom:var(--md);">${DOW_FULL[d.getDay()]} ${d.getDate()} ${MONTH_FULL[d.getMonth()]} ${d.getFullYear() + 543} · ${escapeHtml(a.start)}–${escapeHtml(a.end)}</p>
+      <div class="field"><label>ผู้บริหาร</label><p class="body-sm">👔 ${escapeHtml(a.execName || "—")}</p></div>
+      ${a.location ? `<div class="field"><label>สถานที่</label><p class="body-sm">📍 ${escapeHtml(a.location)}</p></div>` : ""}
+      ${pending ? `<div class="badge-pill" style="background:var(--brand-ochre); color:var(--ink); margin-top:8px;">รออนุมัติ</div>` : ""}
+    `;
+    openSheet("apptDetailOverlay");
+  }
+
+  function bindApptChipClicks(container, group) {
+    container.querySelectorAll("[data-appt-id]").forEach(el => {
+      el.addEventListener("click", () => {
+        const appt = appointments.find(a => String(a.id || "") === el.dataset.apptId && group.has(String(a.execName || "").trim().toLowerCase()));
+        if (appt) showApptDetail(appt);
+      });
+    });
   }
 
   function scheduleTableHTML(days, group) {
@@ -121,7 +144,9 @@
       const holiday = holidayFor(iso);
       const isToday = isSameDay(date, today);
       const alt = i % 2 === 1 ? " alt" : "";
-      const label = DOW_FULL[date.getDay()] + (showDateNumber ? ` ${date.getDate()}` : "");
+      const label = showDateNumber
+        ? `${DOW_FULL[date.getDay()]}ที่ ${date.getDate()} ${MONTH_FULL[date.getMonth()]}`
+        : DOW_FULL[date.getDay()];
 
       const items = appointments
         .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
@@ -132,7 +157,7 @@
       function cellHTML(list) {
         if (holiday) return `<div class="st-holiday-text">${escapeHtml(holiday.label)}</div>`;
         if (list.length === 0) return "";
-        return list.map(busyChipHTML).join("");
+        return list.map(apptChipHTML).join("");
       }
 
       rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${label}</div>`;
@@ -144,6 +169,7 @@
 
   // View toggle (รายสัปดาห์ / รายเดือน) — defaults to week, mirrors index.html's landing page.
   let calView = "week";
+  let calMonthAnchor = startOfDay(new Date());
   document.querySelectorAll(".view-switch button").forEach(btn => {
     btn.addEventListener("click", () => {
       calView = btn.dataset.view;
@@ -151,8 +177,21 @@
         b.classList.toggle("active", b === btn);
         b.setAttribute("aria-selected", b === btn ? "true" : "false");
       });
+      $("#calMonthNav").style.display = calView === "month" ? "flex" : "none";
       renderCalendarPreview();
     });
+  });
+  $("#btnCalMonthPrev").addEventListener("click", () => {
+    calMonthAnchor = new Date(calMonthAnchor.getFullYear(), calMonthAnchor.getMonth() - 1, 1);
+    renderCalendarPreview();
+  });
+  $("#btnCalMonthNext").addEventListener("click", () => {
+    calMonthAnchor = new Date(calMonthAnchor.getFullYear(), calMonthAnchor.getMonth() + 1, 1);
+    renderCalendarPreview();
+  });
+  $("#btnCalMonthToday").addEventListener("click", () => {
+    calMonthAnchor = startOfDay(new Date());
+    renderCalendarPreview();
   });
 
   function renderCalendarPreview() {
@@ -170,12 +209,12 @@
         ? `${rangeStart.getDate()}–${rangeEnd.getDate()} ${MONTH_FULL[rangeStart.getMonth()]} ${rangeStart.getFullYear() + 543}`
         : `${rangeStart.getDate()} ${MONTH_SHORT[rangeStart.getMonth()]} – ${rangeEnd.getDate()} ${MONTH_SHORT[rangeEnd.getMonth()]} ${rangeEnd.getFullYear() + 543}`;
     } else {
-      const today = startOfDay(new Date());
-      rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      rangeEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const anchor = calMonthAnchor;
+      rangeStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+      rangeEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
       days = [];
       for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) days.push(new Date(d));
-      label = `${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+      label = `${MONTH_FULL[anchor.getMonth()]} ${anchor.getFullYear() + 543}`;
     }
     $("#calWeekLabel").textContent = label;
 
@@ -188,12 +227,13 @@
     if (rangeItems.length === 0 && !rangeHoliday) {
       $("#calWeekList").style.display = "none";
       $("#calEmpty").style.display = "block";
-      $("#calEmpty p").textContent = calView === "week" ? "สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว" : "เดือนนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว";
+      $("#calEmpty p").textContent = calView === "week" ? "สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว" : `${label}ยังไม่มีนัดหมายที่ยืนยันแล้ว`;
       return;
     }
     $("#calWeekList").style.display = "";
     $("#calEmpty").style.display = "none";
     $("#calWeekList").innerHTML = scheduleTableHTML(days, group);
+    bindApptChipClicks($("#calWeekList"), group);
   }
 
   async function init() {

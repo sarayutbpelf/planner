@@ -90,6 +90,15 @@
         <button data-view="week" class="active" role="tab" aria-selected="true" id="btnViewWeek">รายสัปดาห์</button>
         <button data-view="month" role="tab" aria-selected="false" id="btnViewMonth">รายเดือน</button>
       </div>
+      <div class="period-nav" id="landingMonthNav" style="display:none; margin-bottom:var(--md);">
+        <button id="btnLandingMonthPrev" aria-label="เดือนก่อนหน้า">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button id="btnLandingMonthToday" style="width:auto; height:auto; border-radius:var(--r-md); border:none; background:transparent; padding:6px 10px; font-weight:600; font-size:13px; color:var(--ink);">เดือนนี้</button>
+        <button id="btnLandingMonthNext" aria-label="เดือนถัดไป">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
       <div id="landingLoading" class="body-sm" style="color:var(--muted); padding:var(--lg) 0; text-align:center;">กำลังโหลดตารางนัดหมาย...</div>
       <div id="landingWeekList" style="display:none; overflow-x:auto;"></div>
       <div id="landingEmpty" class="landing-empty" style="display:none;">
@@ -117,6 +126,20 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ============ Appointment detail (read-only) ============ -->
+<div class="overlay" id="apptDetailOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="apptDetailTitle">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="apptDetailTitle">รายละเอียดนัดหมาย</h2>
+      <button class="sheet-close" data-close="apptDetailOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="apptDetailBody"></div>
+  </div>
+</div>
 
 <!-- ============ Poster download options (position + week) ============ -->
 <div class="overlay" id="posterOverlay">

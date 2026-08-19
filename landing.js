@@ -107,7 +107,29 @@
   function apptChipHTML(a, execById) {
     const ex = execById(a.execId);
     const cls = "c-" + (ex ? ex.colorKey : "cream");
-    return `<div class="st-chip ${cls}">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title)}</small></div>`;
+    return `<div class="st-chip ${cls}" data-appt-id="${escapeHtml(a.id)}" style="cursor:pointer;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title)}</small></div>`;
+  }
+
+  // Read-only detail popup — no edit controls, just information.
+  function showApptDetail(a, execById) {
+    const ex = execById(a.execId);
+    const d = new Date(a.date + "T00:00:00");
+    $("#apptDetailBody").innerHTML = `
+      <div class="title-md" style="margin-bottom:4px;">${escapeHtml(a.title)}</div>
+      <p class="body-sm" style="color:var(--muted); margin-bottom:var(--md);">${DOW_FULL[d.getDay()]} ${d.getDate()} ${MONTH_FULL[d.getMonth()]} ${d.getFullYear() + 543} · ${escapeHtml(a.start)}–${escapeHtml(a.end)}</p>
+      <div class="field"><label>ผู้บริหาร</label><p class="body-sm">👔 ${ex ? escapeHtml(ex.name) : "—"}</p></div>
+      ${a.location ? `<div class="field"><label>สถานที่</label><p class="body-sm">📍 ${escapeHtml(a.location)}</p></div>` : ""}
+    `;
+    openSheet("apptDetailOverlay");
+  }
+
+  function bindApptChipClicks(container, appointments, execById) {
+    container.querySelectorAll("[data-appt-id]").forEach(el => {
+      el.addEventListener("click", () => {
+        const appt = appointments.find(a => a.id === el.dataset.apptId);
+        if (appt) showApptDetail(appt, execById);
+      });
+    });
   }
 
   function scheduleTableHTML(days, executives, appointments, holidays) {
@@ -121,7 +143,9 @@
       const holiday = holidayFor(iso, holidays);
       const isToday = isSameDay(date, today);
       const alt = i % 2 === 1 ? " alt" : "";
-      const label = DOW_FULL[date.getDay()] + (showDateNumber ? ` ${date.getDate()}` : "");
+      const label = showDateNumber
+        ? `${DOW_FULL[date.getDay()]}ที่ ${date.getDate()} ${MONTH_FULL[date.getMonth()]}`
+        : DOW_FULL[date.getDay()];
 
       const items = appointments.filter(a => a.date === iso).sort((a, b) => a.start.localeCompare(b.start));
       const morning = items.filter(a => toMinutes(a.start) < 12 * 60);
@@ -149,6 +173,7 @@
 
   function renderWeek(executives, appointments, holidays) {
     $("#landingViewLabel").textContent = "สัปดาห์นี้";
+    $("#landingMonthNav").style.display = "none";
     const today = startOfDay(new Date());
     const monday = mondayOf(today);
     const sunday = addDays(monday, 6);
@@ -168,19 +193,25 @@
     }
 
     const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    const execById = (id) => executives.find(e => e.id === id);
     $("#landingWeekList").innerHTML = scheduleTableHTML(days, executives, appointments, holidays);
+    bindApptChipClicks($("#landingWeekList"), appointments, execById);
     showList();
     $("#btnLandingDownload").style.display = "flex";
   }
 
+  // Which month is currently shown in month view (persists across navigation).
+  let monthAnchor = startOfDay(new Date());
+
   function renderMonth(executives, appointments, holidays) {
     $("#landingViewLabel").textContent = "";
-    const today = startOfDay(new Date());
-    const first = new Date(today.getFullYear(), today.getMonth(), 1);
-    const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    $("#landingWeekLabel").textContent = `${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+    $("#landingMonthNav").style.display = "flex";
+    const anchor = monthAnchor;
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    $("#landingWeekLabel").textContent = `${MONTH_FULL[anchor.getMonth()]} ${anchor.getFullYear() + 543}`;
 
-    lastData = { monday: mondayOf(today), executives, appointments, holidays }; // poster download stays week-based
+    lastData = { monday: mondayOf(startOfDay(new Date())), executives, appointments, holidays }; // poster download stays this-week-based
 
     const totalAppts = appointments.filter(a => {
       const d = new Date(a.date + "T00:00:00");
@@ -188,14 +219,16 @@
     });
 
     if (totalAppts.length === 0 && holidays.every(h => { const d = new Date(h.date + "T00:00:00"); return !(d >= first && d <= last); })) {
-      showEmpty("เดือนนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว");
+      showEmpty(`${MONTH_FULL[anchor.getMonth()]}ยังไม่มีนัดหมายที่ยืนยันแล้ว`);
       $("#btnLandingDownload").style.display = "none";
       return;
     }
 
     const days = [];
     for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+    const execById = (id) => executives.find(e => e.id === id);
     $("#landingWeekList").innerHTML = scheduleTableHTML(days, executives, appointments, holidays);
+    bindApptChipClicks($("#landingWeekList"), appointments, execById);
     showList();
     $("#btnLandingDownload").style.display = "flex";
   }
@@ -217,6 +250,18 @@
       });
       rerenderCurrentView();
     });
+  });
+  $("#btnLandingMonthPrev").addEventListener("click", () => {
+    monthAnchor = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() - 1, 1);
+    rerenderCurrentView();
+  });
+  $("#btnLandingMonthNext").addEventListener("click", () => {
+    monthAnchor = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 1);
+    rerenderCurrentView();
+  });
+  $("#btnLandingMonthToday").addEventListener("click", () => {
+    monthAnchor = startOfDay(new Date());
+    rerenderCurrentView();
   });
 
   // Today's location summary — shows, at a glance, where each executive with
@@ -429,6 +474,7 @@
       const appointments = (data.appointments || [])
         .filter(a => String(a.status || "").toLowerCase() !== "pending")
         .map(a => ({
+          id: String(a.id || "").trim(),
           execId: nameToId.get(String(a.execName || "").trim().toLowerCase()) || null,
           title: String(a.title || "").trim(),
           date: String(a.date || "").trim(),
