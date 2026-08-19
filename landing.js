@@ -174,6 +174,46 @@
     $("#btnLandingDownload").style.display = "flex";
   }
 
+  // Today's location summary — shows, at a glance, where each executive with
+  // a confirmed appointment today will be and when (chronological, across
+  // everyone), so a visitor doesn't have to scan the whole week table.
+  function renderTodaySummary(executives, appointments, holidays) {
+    const card = $("#todaySummaryCard");
+    const today = startOfDay(new Date());
+    const iso = fmtISO(today);
+    $("#todaySummaryDate").textContent = `${DOW_FULL[today.getDay()]} ${today.getDate()} ${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+
+    const holiday = holidayFor(iso, holidays);
+    if (holiday) {
+      card.style.display = "block";
+      $("#todaySummaryList").innerHTML = `<div class="today-item"><div class="today-body"><div class="today-exec">🎌 ${escapeHtml(holiday.label)}</div></div></div>`;
+      return;
+    }
+
+    const todayItems = appointments
+      .filter(a => a.date === iso)
+      .sort((a, b) => a.start.localeCompare(b.start));
+
+    if (todayItems.length === 0) {
+      card.style.display = "block";
+      $("#todaySummaryList").innerHTML = `<p class="body-sm" style="color:var(--muted);">วันนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว</p>`;
+      return;
+    }
+
+    card.style.display = "block";
+    const execById = (id) => executives.find(e => e.id === id);
+    $("#todaySummaryList").innerHTML = todayItems.map(a => {
+      const ex = execById(a.execId);
+      return `<div class="today-item">
+        <span class="today-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
+        <div class="today-body">
+          <div class="today-exec">${ex ? escapeHtml(ex.name) : "—"}</div>
+          <div class="today-loc">📍 ${a.location ? escapeHtml(a.location) : "ไม่ระบุสถานที่"}</div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
   function weekOptionLabel(monday) {
     const sunday = addDays(monday, 6);
     return monday.getMonth() === sunday.getMonth()
@@ -359,6 +399,7 @@
       })).filter(h => h.date);
 
       renderWeek(executives, appointments, holidays);
+      renderTodaySummary(executives, appointments, holidays);
     } catch (err) {
       console.error(err);
       showEmpty("ไม่สามารถโหลดตารางนัดหมายได้ในขณะนี้ ลองรีเฟรชหน้าอีกครั้ง");
