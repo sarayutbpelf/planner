@@ -81,22 +81,19 @@
   const PX_PER_HOUR = 56;
   const MIN_EVENT_HEIGHT = 30;
 
-  function mondayOf(d) {
-    const x = startOfDay(d);
-    const dow = x.getDay(); // 0=Sun..6=Sat
-    const diff = dow === 0 ? -6 : 1 - dow;
-    x.setDate(x.getDate() + diff);
-    return x;
-  }
+  // Sunday-based, matching the admin app's own interactive calendar
+  // (startOfWeek in app.js) so every view in the system starts the week
+  // on the same day.
+  function mondayOf(d) { return startOfWeek(d); }
 
   const TABLE_DOW = [
+    { key: 0, label: "วันอาทิตย์" },
     { key: 1, label: "วันจันทร์" },
     { key: 2, label: "วันอังคาร" },
     { key: 3, label: "วันพุธ" },
     { key: 4, label: "วันพฤหัสบดี" },
     { key: 5, label: "วันศุกร์" },
     { key: 6, label: "วันเสาร์" },
-    { key: 0, label: "วันอาทิตย์" },
   ];
 
   function holidayFor(dateISO, holidays) {
@@ -119,7 +116,7 @@
 
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
     TABLE_DOW.forEach((d, i) => {
-      const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
+      const dayOffset = d.key; // Sunday(0) is now the first column
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso, holidays);
@@ -276,7 +273,7 @@
     const today = startOfDay(new Date());
     const rangeLabel = weekOptionLabel(monday);
     const posterTitle = isAll
-      ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน"
+      ? "ตารางปฏิบัติงาน นายแพทย์ปฐมพงษ์ ภักดี รวมทุกตำแหน่ง"
       : (ex.personName && ex.personName.trim())
         ? `ตารางปฏิบัติงาน ${ex.personName.trim()} ในตำแหน่ง ${ex.name}`
         : `ตารางปฏิบัติงาน ${ex.name}`;
@@ -304,7 +301,7 @@
 
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
     TABLE_DOW.forEach((d, i) => {
-      const dayOffset = d.key === 0 ? 6 : d.key - 1;
+      const dayOffset = d.key; // Sunday(0) is now the first column
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso, holidays);

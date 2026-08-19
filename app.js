@@ -1393,22 +1393,14 @@
      Official "ตารางปฏิบัติงาน" poster export (matches supplied reference design)
      ============================================================ */
   const POSTER_DOW = [
+    { key: 0, label: "วันอาทิตย์" },
     { key: 1, label: "วันจันทร์" },
     { key: 2, label: "วันอังคาร" },
     { key: 3, label: "วันพุธ" },
     { key: 4, label: "วันพฤหัสบดี" },
     { key: 5, label: "วันศุกร์" },
     { key: 6, label: "วันเสาร์" },
-    { key: 0, label: "วันอาทิตย์" },
   ];
-
-  function mondayOf(d) {
-    const x = startOfDay(d);
-    const dow = x.getDay(); // 0=Sun..6=Sat
-    const diff = dow === 0 ? -6 : 1 - dow;
-    x.setDate(x.getDate() + diff);
-    return x;
-  }
 
   function weekOptionLabel(monday) {
     const sunday = addDays(monday, 6);
@@ -1420,7 +1412,7 @@
 
   function populatePosterWeeks(selectedMonday) {
     const sel = $("#posterWeekStart");
-    const currentMonday = mondayOf(new Date());
+    const currentMonday = startOfWeek(new Date());
     const selectedIso = fmtISO(selectedMonday);
     let optionsHTML = "";
     let hasSelected = false;
@@ -1444,7 +1436,7 @@
     if (state.executives.length === 0) { toast("กรุณาเพิ่มผู้บริหารก่อน"); closeSheet("menuOverlay"); openExecSheet(); return; }
     const options = state.executives.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
     $("#posterExec").innerHTML = `<option value="ALL">📋 ทุกตำแหน่ง</option>` + options;
-    populatePosterWeeks(mondayOf(anchor));
+    populatePosterWeeks(startOfWeek(anchor));
     closeSheet("menuOverlay");
     openSheet("posterOverlay");
   }
@@ -1456,7 +1448,7 @@
     const execId = $("#posterExec").value;
     const weekStartInput = $("#posterWeekStart").value;
     if (!execId || !weekStartInput) return;
-    generatePoster(execId, mondayOf(parseISO(weekStartInput)));
+    generatePoster(execId, startOfWeek(parseISO(weekStartInput)));
   });
 
   async function generatePoster(execId, monday) {
@@ -1469,7 +1461,7 @@
     const today = startOfDay(new Date());
     const rangeLabel = weekOptionLabel(monday);
     const posterTitle = isAll
-      ? "ตารางปฏิบัติงานผู้บริหารทุกท่าน"
+      ? "ตารางปฏิบัติงาน นายแพทย์ปฐมพงษ์ ภักดี รวมทุกตำแหน่ง"
       : (ex.personName && ex.personName.trim())
         ? `ตารางปฏิบัติงาน ${ex.personName.trim()} ในตำแหน่ง ${ex.name}`
         : `ตารางปฏิบัติงาน ${ex.name}`;
@@ -1501,7 +1493,7 @@
 
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
     POSTER_DOW.forEach((d, i) => {
-      const dayOffset = d.key === 0 ? 6 : d.key - 1; // Monday(1)->0 ... Sunday(0)->6
+      const dayOffset = d.key; // Sunday(0) is now the first column, matching the admin calendar's own week start
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso);

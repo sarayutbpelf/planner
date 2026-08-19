@@ -86,22 +86,16 @@
   function fmtISO(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
   function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
-  function mondayOf(d) {
-    const x = startOfDay(d);
-    const dow = x.getDay(); // 0=Sun..6=Sat
-    const diff = dow === 0 ? -6 : 1 - dow;
-    x.setDate(x.getDate() + diff);
-    return x;
-  }
+  function mondayOf(d) { const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday-based, matching admin's own calendar
 
   const TABLE_DOW = [
+    { key: 0, label: "วันอาทิตย์" },
     { key: 1, label: "วันจันทร์" },
     { key: 2, label: "วันอังคาร" },
     { key: 3, label: "วันพุธ" },
     { key: 4, label: "วันพฤหัสบดี" },
     { key: 5, label: "วันศุกร์" },
     { key: 6, label: "วันเสาร์" },
-    { key: 0, label: "วันอาทิตย์" },
   ];
 
   function holidayFor(dateISO) {
@@ -122,7 +116,7 @@
     let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
     const today = startOfDay(new Date());
     TABLE_DOW.forEach((d, i) => {
-      const dayOffset = d.key === 0 ? 6 : d.key - 1;
+      const dayOffset = d.key; // Sunday(0) is now the first column
       const date = addDays(monday, dayOffset);
       const iso = fmtISO(date);
       const holiday = holidayFor(iso);
