@@ -37,15 +37,22 @@
 <body>
 <div id="app">
   <header class="top-nav">
-    <div class="brand">
+    <a href="index.html" class="brand" style="text-decoration:none; color:inherit;">
       <img src="assets/logo.png" alt="" class="brand-mark" style="object-fit:contain; padding:2px;">
       <div class="brand-word">P-Roster<small>ขอเข้าพบผู้บริหาร</small></div>
-    </div>
+    </a>
   </header>
 
   <div class="booking-shell">
 
     <div class="booking-calendar-col" id="calendarCol" style="display:none;">
+      <a href="index.html" class="btn btn-primary btn-block" style="margin-bottom:var(--md); text-decoration:none; font-weight:700;">🏠 กลับหน้าหลัก / ดูตารางรวมทุกตำแหน่ง →</a>
+
+      <div class="landing-today-card" id="todaySummaryCard" style="display:none;">
+        <div class="title-md">📍 วันนี้ — สรุปสถานที่</div>
+        <div class="body-sm" id="todaySummaryDate" style="color:var(--muted); margin-bottom:var(--md);">—</div>
+        <div id="todaySummaryList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
       <div class="booking-calendar-card">
         <div class="title-md" id="calTitle">ตารางนัดหมาย</div>
         <div class="body-sm" id="calWeekLabel" style="color:var(--muted); margin-bottom:var(--md);">—</div>

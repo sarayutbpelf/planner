@@ -247,12 +247,48 @@
       appointments = data.appointments || [];
       holidays = data.holidays || [];
       populateExecSelect();
+      renderTodaySummary();
       showState("formState");
     } catch (err) {
       console.error(err);
       showState("formState");
       toast("ไม่สามารถโหลดข้อมูลผู้บริหารได้ กรุณาลองใหม่");
     }
+  }
+
+  // Today's location summary — same as index.html's landing page, shows
+  // where every executive with a confirmed appointment today will be.
+  function renderTodaySummary() {
+    const card = $("#todaySummaryCard");
+    const today = startOfDay(new Date());
+    const iso = fmtISO(today);
+    $("#todaySummaryDate").textContent = `${DOW_FULL[today.getDay()]} ${today.getDate()} ${MONTH_FULL[today.getMonth()]} ${today.getFullYear() + 543}`;
+
+    const holiday = holidayFor(iso);
+    if (holiday) {
+      card.style.display = "block";
+      $("#todaySummaryList").innerHTML = `<div class="today-item"><div class="today-body"><div class="today-exec">🎌 ${escapeHtml(holiday.label)}</div></div></div>`;
+      return;
+    }
+
+    const todayItems = appointments
+      .filter(a => a.date === iso && String(a.status || "").toLowerCase() === "confirmed")
+      .sort((a, b) => a.start.localeCompare(b.start));
+
+    if (todayItems.length === 0) {
+      card.style.display = "block";
+      $("#todaySummaryList").innerHTML = `<p class="body-sm" style="color:var(--muted);">วันนี้ยังไม่มีนัดหมายที่ยืนยันแล้ว</p>`;
+      return;
+    }
+
+    card.style.display = "block";
+    $("#todaySummaryList").innerHTML = todayItems.map(a => `<div class="today-item">
+      <span class="today-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
+      <div class="today-body">
+        <div class="today-exec">${escapeHtml(a.execName || "—")}</div>
+        <div class="today-loc">📍 ${a.location ? escapeHtml(a.location) : "ไม่ระบุสถานที่"}</div>
+      </div>
+    </div>`).join("");
   }
 
   function populateExecSelect() {
