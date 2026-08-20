@@ -1443,29 +1443,44 @@
   $("#btnOpenPoster").addEventListener("click", openPosterSheet);
   $("#btnExport").addEventListener("click", openPosterSheet);
 
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
   $("#posterForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const execId = $("#posterExec").value;
     const weekStartInput = $("#posterWeekStart").value;
     if (!execId || !weekStartInput) return;
-    generatePoster(execId, startOfWeek(parseISO(weekStartInput)));
+    // Must open the tab SYNCHRONOUSLY, inside this direct click/submit handler —
+    // iOS Safari's popup blocker silently neuters window.open() calls made after
+    // any await/async gap (like the html2canvas work below), even though it
+    // doesn't throw or return null. Open a placeholder now, fill it in later.
+    let preOpenedWindow = null;
+    if (isIOS()) {
+      preOpenedWindow = window.open("", "_blank");
+      if (preOpenedWindow) {
+        preOpenedWindow.document.write(`<!DOCTYPE html><html><head><title>กำลังสร้างรูปภาพ...</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0; background:#111; color:#fff; display:flex; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif;">กำลังสร้างรูปภาพ...</body></html>`);
+      }
+    }
+    generatePoster(execId, startOfWeek(parseISO(weekStartInput)), preOpenedWindow);
   });
 
   // iOS Safari doesn't reliably honor the `download` attribute on data: URIs —
   // it often navigates the whole tab to the raw image instead of saving a file,
   // which looks like "the page/schedule broke" right after the download toast.
   // Open the image in a new tab instead there, so the user can long-press it →
-  // "Save Image" using the normal iOS flow. Returns true if it used that path.
-  function downloadCanvasImage(canvas, filename) {
+  // "Save Image" using the normal iOS flow. `preOpenedWindow`, if given, was
+  // already opened synchronously by the click handler (see above) to dodge
+  // Safari's async-popup block. Returns true if it used that path.
+  function downloadCanvasImage(canvas, filename, preOpenedWindow) {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    if (isIOS) {
-      const win = window.open("", "_blank");
-      if (win) {
+    if (isIOS()) {
+      const win = preOpenedWindow || window.open("", "_blank");
+      if (win && !win.closed) {
+        win.document.open();
         win.document.write(`<!DOCTYPE html><html><head><title>${filename}</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0; background:#111; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${dataUrl}" style="max-width:100%; height:auto; display:block;"></body></html>`);
         win.document.close();
       } else {
-        window.location.href = dataUrl; // popup blocked — fall back to navigating this tab
+        window.location.href = dataUrl; // popup blocked entirely — fall back to navigating this tab
       }
       return true;
     }
@@ -1476,7 +1491,7 @@
     return false;
   }
 
-  async function generatePoster(execId, monday) {
+  async function generatePoster(execId, monday, preOpenedWindow) {
     const isAll = execId === "ALL";
     const ex = isAll ? null : execById(execId);
     if (!isAll && !ex) return;
@@ -1563,12 +1578,17 @@
         });
       }
       const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
-      const openedInNewTab = downloadCanvasImage(canvas, `${posterTitle}-${fmtISO(monday)}.jpg`);
+      const openedInNewTab = downloadCanvasImage(canvas, `${posterTitle}-${fmtISO(monday)}.jpg`, preOpenedWindow);
       toast(openedInNewTab ? "เปิดรูปภาพในแท็บใหม่แล้ว — กดค้างที่รูปเพื่อบันทึก" : "ดาวน์โหลดตารางปฏิบัติงานแล้ว");
       closeSheet("posterOverlay");
     } catch (err) {
       console.error(err);
       toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
+      if (preOpenedWindow && !preOpenedWindow.closed) {
+        preOpenedWindow.document.open();
+        preOpenedWindow.document.write(`<!DOCTYPE html><html><body style="margin:0; background:#111; color:#fff; display:flex; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; text-align:center; padding:20px;">เกิดข้อผิดพลาดในการสร้างรูปภาพ กรุณาปิดแท็บนี้แล้วลองใหม่</body></html>`);
+        preOpenedWindow.document.close();
+      }
     } finally {
       document.body.removeChild(wrap);
     }
