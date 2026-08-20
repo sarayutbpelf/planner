@@ -32,6 +32,14 @@
   .state-banner.warn{ background:#fef3e0; color:#8a5a00; display:block; }
   .success-card{ text-align:center; padding:var(--xxl) var(--lg); }
   .landing-empty{ text-align:center; padding:var(--xxl) var(--md); color:var(--muted); }
+
+  .role-card{
+    display:flex; flex-direction:column; align-items:flex-start; gap:8px;
+    text-decoration:none; text-align:left; cursor:pointer; color:var(--ink);
+    background:var(--surface-card); border-radius:var(--r-xl); padding:var(--lg);
+  }
+  .role-card .role-icon{ font-size:28px; }
+  .role-card .role-cta{ margin-top:10px; font-size:16px; height:52px; font-weight:700; }
 </style>
 </head>
 <body>
@@ -46,7 +54,12 @@
   <div class="booking-shell">
 
     <div class="booking-calendar-col" id="calendarCol" style="display:none;">
-      <a href="index.html" class="btn btn-primary btn-block" style="margin-bottom:var(--md); text-decoration:none; font-weight:700;">🏠 กลับหน้าหลัก / ดูตารางรวมทุกตำแหน่ง →</a>
+      <a href="index.html" class="role-card feature-card-pink" style="margin-bottom:var(--md);">
+        <span class="role-icon">📅</span>
+        <div class="title-md">เมนูนัดหมาย</div>
+        <p class="body-sm" style="opacity:.9;">ดูตารางนัดหมายรวมทุกตำแหน่ง และสรุปสถานที่ของวันนี้ได้ที่หน้าหลักของระบบ P-Roster</p>
+        <span class="btn btn-primary btn-block role-cta">กลับหน้าหลัก →</span>
+      </a>
 
       <div class="landing-today-card" id="todaySummaryCard" style="display:none;">
         <div class="title-md">📍 วันนี้ — สรุปสถานที่</div>
