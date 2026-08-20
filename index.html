@@ -55,7 +55,8 @@
   .landing-menu{ display:flex; flex-direction:column; gap:var(--md); }
   .role-card{
     display:flex; flex-direction:column; align-items:flex-start; gap:8px;
-    text-decoration:none; text-align:left; cursor:pointer;
+    text-decoration:none; text-align:left; cursor:pointer; color:var(--ink);
+    background:var(--surface-card); border-radius:var(--r-xl); padding:var(--lg);
   }
   .role-card .role-icon{ font-size:28px; }
   .role-card .role-cta{ margin-top:10px; font-size:16px; height:52px; font-weight:700; }
@@ -120,6 +121,13 @@
       <div class="title-md">จัดการนัดหมาย</div>
       <p class="body-sm" style="opacity:.9;">จัดการตารางนัดหมาย อนุมัติคำขอ ดูภาพรวมทุกตำแหน่ง และดาวน์โหลดตารางปฏิบัติงาน</p>
       <span class="btn btn-primary btn-block role-cta">เข้าสู่เมนูจัดการนัดหมาย →</span>
+    </a>
+
+    <a href="booking.html" class="role-card feature-card-pink">
+      <span class="role-icon">📅</span>
+      <div class="title-md">เมนูนัดหมาย</div>
+      <p class="body-sm" style="opacity:.9;">ขอเข้าพบผู้บริหารตามวันเวลาที่สะดวก ระบบจะแจ้งเตือนหากเวลาที่เลือกไม่ว่าง และส่งคำขอให้ผู้บริหารพิจารณา</p>
+      <span class="btn btn-primary btn-block role-cta">เข้าสู่เมนูนัดหมาย →</span>
     </a>
   </div>
 
