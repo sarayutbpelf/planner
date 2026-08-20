@@ -106,10 +106,17 @@
     return null;
   }
 
-  function apptChipHTML(a) {
+  function apptCardHTML(a) {
     const pending = String(a.status || "").toLowerCase() === "pending";
-    const cls = pending ? "c-cream pending" : "c-pink";
-    return `<div class="st-chip ${cls}" data-appt-id="${escapeHtml(a.id || "")}" style="cursor:pointer;">${escapeHtml(a.start)}–${escapeHtml(a.end)}<small>${escapeHtml(a.title || "")}${pending ? " (รออนุมัติ)" : ""}</small></div>`;
+    const cls = pending ? "c-cream" : "c-pink";
+    return `<div class="appt-card ${cls} ${pending ? "pending" : ""}" data-appt-id="${escapeHtml(a.id || "")}">
+      ${pending ? `<span class="appt-pending-badge">รออนุมัติ</span>` : ""}
+      <span class="appt-time">${escapeHtml(a.start)}–${escapeHtml(a.end)}</span>
+      <span class="appt-title">${escapeHtml(a.title || "")}</span>
+      <span class="appt-meta">
+        ${a.location ? `<span>📍 ${escapeHtml(a.location)}</span>` : ""}
+      </span>
+    </div>`;
   }
 
   // Read-only detail popup — same information the admin app shows, no edit controls.
@@ -126,7 +133,7 @@
     openSheet("apptDetailOverlay");
   }
 
-  function bindApptChipClicks(container, group) {
+  function bindApptCardClicks(container, group) {
     container.querySelectorAll("[data-appt-id]").forEach(el => {
       el.addEventListener("click", () => {
         const appt = appointments.find(a => String(a.id || "") === el.dataset.apptId && group.has(String(a.execName || "").trim().toLowerCase()));
@@ -135,36 +142,30 @@
     });
   }
 
-  function scheduleTableHTML(days, group) {
-    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+  // Day-card list — same exact component (.day-card/.appt-card) the admin
+  // app's own calendar uses, kept read-only here (no add/edit affordances).
+  function dayCardListHTML(days, group) {
     const today = startOfDay(new Date());
-    const showDateNumber = days.length > 7; // month view: disambiguate repeated weekday names
-    days.forEach((date, i) => {
+    return days.map(date => {
       const iso = fmtISO(date);
       const holiday = holidayFor(iso);
       const isToday = isSameDay(date, today);
-      const alt = i % 2 === 1 ? " alt" : "";
-      const label = showDateNumber
-        ? `${DOW_FULL[date.getDay()]}ที่ ${date.getDate()} ${MONTH_FULL[date.getMonth()]}`
-        : DOW_FULL[date.getDay()];
-
       const items = appointments
         .filter(a => a.date === iso && group.has(String(a.execName || "").trim().toLowerCase()) && String(a.status || "").toLowerCase() !== "declined")
         .sort((a, b) => a.start.localeCompare(b.start));
-      const morning = items.filter(a => toMinutes(a.start) < 12 * 60);
-      const afternoon = items.filter(a => toMinutes(a.start) >= 12 * 60);
 
-      function cellHTML(list) {
-        if (holiday) return `<div class="st-holiday-text">${escapeHtml(holiday.label)}</div>`;
-        if (list.length === 0) return "";
-        return list.map(apptChipHTML).join("");
-      }
+      const bodyHTML = holiday
+        ? `<div class="badge-pill" style="background:var(--brand-ochre); color:var(--ink);">🎌 ${escapeHtml(holiday.label)}</div>`
+        : (items.length ? items.map(apptCardHTML).join("") : `<div class="day-empty">ไม่มีนัดหมาย</div>`);
 
-      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}">${label}</div>`;
-      rowsHTML += `<div class="st-cell${alt}">${cellHTML(morning)}</div>`;
-      rowsHTML += `<div class="st-cell${alt}">${cellHTML(afternoon)}</div>`;
-    });
-    return `<div class="schedule-table">${rowsHTML}</div>`;
+      return `<div class="day-card${holiday ? " holiday" : ""}">
+        <div class="day-card-header ${isToday ? "today" : ""}">
+          <span class="dow">${DOW_FULL[date.getDay()]}</span>
+          <span class="dom">${date.getDate()} ${MONTH_SHORT[date.getMonth()]}</span>
+        </div>
+        <div class="day-card-body">${bodyHTML}</div>
+      </div>`;
+    }).join("");
   }
 
   // View toggle (รายสัปดาห์ / รายเดือน) — defaults to week, mirrors index.html's landing page.
@@ -232,8 +233,8 @@
     }
     $("#calWeekList").style.display = "";
     $("#calEmpty").style.display = "none";
-    $("#calWeekList").innerHTML = scheduleTableHTML(days, group);
-    bindApptChipClicks($("#calWeekList"), group);
+    $("#calWeekList").innerHTML = dayCardListHTML(days, group);
+    bindApptCardClicks($("#calWeekList"), group);
   }
 
   async function init() {

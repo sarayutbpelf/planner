@@ -40,6 +40,8 @@
   }
   .role-card .role-icon{ font-size:28px; }
   .role-card .role-cta{ margin-top:10px; font-size:16px; height:52px; font-weight:700; }
+
+  .booking-week-list{ display:flex; flex-direction:column; gap:var(--md); }
 </style>
 </head>
 <body>
@@ -54,18 +56,6 @@
   <div class="booking-shell">
 
     <div class="booking-calendar-col" id="calendarCol" style="display:none;">
-      <a href="index.html" class="role-card feature-card-pink" style="margin-bottom:var(--md);">
-        <span class="role-icon">📅</span>
-        <div class="title-md">เมนูนัดหมาย</div>
-        <p class="body-sm" style="opacity:.9;">ดูตารางนัดหมายรวมทุกตำแหน่ง และสรุปสถานที่ของวันนี้ได้ที่หน้าหลักของระบบ P-Roster</p>
-        <span class="btn btn-primary btn-block role-cta">กลับหน้าหลัก →</span>
-      </a>
-
-      <div class="landing-today-card" id="todaySummaryCard" style="display:none;">
-        <div class="title-md">📍 วันนี้ — สรุปสถานที่</div>
-        <div class="body-sm" id="todaySummaryDate" style="color:var(--muted); margin-bottom:var(--md);">—</div>
-        <div id="todaySummaryList" style="display:flex; flex-direction:column; gap:8px;"></div>
-      </div>
       <div class="booking-calendar-card">
         <div class="title-md" id="calTitle">ตารางนัดหมาย</div>
         <div class="body-sm" id="calWeekLabel" style="color:var(--muted); margin-bottom:var(--md);">—</div>
@@ -82,11 +72,17 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
-        <div id="calWeekList" style="overflow-x:auto;"></div>
+        <div id="calWeekList" class="booking-week-list"></div>
         <div id="calEmpty" class="landing-empty" style="display:none;">
           <div class="em-icon" style="font-size:32px; margin-bottom:8px;">🗓️</div>
           <p class="body-sm">สัปดาห์นี้ยังไม่มีนัดหมายที่ยืนยันแล้ว</p>
         </div>
+      </div>
+
+      <div class="landing-today-card" id="todaySummaryCard" style="display:none; margin-top:var(--md); margin-bottom:0;">
+        <div class="title-md">📍 วันนี้ — สรุปสถานที่</div>
+        <div class="body-sm" id="todaySummaryDate" style="color:var(--muted); margin-bottom:var(--md);">—</div>
+        <div id="todaySummaryList" style="display:flex; flex-direction:column; gap:8px;"></div>
       </div>
     </div>
 
