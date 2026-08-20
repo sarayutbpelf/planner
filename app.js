@@ -1451,6 +1451,31 @@
     generatePoster(execId, startOfWeek(parseISO(weekStartInput)));
   });
 
+  // iOS Safari doesn't reliably honor the `download` attribute on data: URIs —
+  // it often navigates the whole tab to the raw image instead of saving a file,
+  // which looks like "the page/schedule broke" right after the download toast.
+  // Open the image in a new tab instead there, so the user can long-press it →
+  // "Save Image" using the normal iOS flow. Returns true if it used that path.
+  function downloadCanvasImage(canvas, filename) {
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(`<!DOCTYPE html><html><head><title>${filename}</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0; background:#111; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${dataUrl}" style="max-width:100%; height:auto; display:block;"></body></html>`);
+        win.document.close();
+      } else {
+        window.location.href = dataUrl; // popup blocked — fall back to navigating this tab
+      }
+      return true;
+    }
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = dataUrl;
+    link.click();
+    return false;
+  }
+
   async function generatePoster(execId, monday) {
     const isAll = execId === "ALL";
     const ex = isAll ? null : execById(execId);
@@ -1538,11 +1563,8 @@
         });
       }
       const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
-      const link = document.createElement("a");
-      link.download = `${posterTitle}-${fmtISO(monday)}.jpg`;
-      link.href = canvas.toDataURL("image/jpeg", 0.95);
-      link.click();
-      toast("ดาวน์โหลดตารางปฏิบัติงานแล้ว");
+      const openedInNewTab = downloadCanvasImage(canvas, `${posterTitle}-${fmtISO(monday)}.jpg`);
+      toast(openedInNewTab ? "เปิดรูปภาพในแท็บใหม่แล้ว — กดค้างที่รูปเพื่อบันทึก" : "ดาวน์โหลดตารางปฏิบัติงานแล้ว");
       closeSheet("posterOverlay");
     } catch (err) {
       console.error(err);
