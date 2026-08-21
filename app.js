@@ -1513,12 +1513,25 @@
     }
 
     function cellHTML(list, holiday) {
-      if (holiday) return `<div class="st-holiday-text" style="font-size:14px;">${escapeHtml(holiday.label)}</div>`;
+      if (holiday) return `<div class="st-holiday-text" style="font-size:20px;">${escapeHtml(holiday.label)}</div>`;
       if (list.length === 0) return "";
       return list.map(apptChipHTML).join("");
     }
 
-    let rowsHTML = `<div class="st-head">วัน / ช่วงวัน</div><div class="st-head">ช่วงเช้า</div><div class="st-head">ช่วงบ่าย</div>`;
+    // Color legend — which color represents which position — only meaningful
+    // when showing everyone combined; a single-executive poster only ever
+    // uses one color already named in the title.
+    const legendExecs = isAll ? state.executives : [];
+    const legendHTML = legendExecs.length ? `
+      <div style="display:flex; flex-wrap:wrap; gap:12px 28px; margin:20px 0 26px; padding:18px 22px; background:var(--surface-soft); border-radius:var(--r-xl);">
+        ${legendExecs.map(le => `<div style="display:flex; align-items:center; gap:10px;">
+          <span style="width:22px; height:22px; border-radius:6px; background:${le.colorKey === 'cream' ? 'var(--surface-strong)' : 'var(--brand-' + le.colorKey + ')'}; flex-shrink:0; display:inline-block; border:1px solid rgba(0,0,0,.15);"></span>
+          <span style="font-size:19px; font-weight:600;">${escapeHtml(le.name)}</span>
+        </div>`).join("")}
+      </div>
+    ` : "";
+
+    let rowsHTML = `<div class="st-head" style="font-size:20px; padding:16px 8px;">วัน / ช่วงวัน</div><div class="st-head" style="font-size:20px; padding:16px 8px;">ช่วงเช้า</div><div class="st-head" style="font-size:20px; padding:16px 8px;">ช่วงบ่าย</div>`;
     POSTER_DOW.forEach((d, i) => {
       const dayOffset = d.key; // Sunday(0) is now the first column, matching the admin calendar's own week start
       const date = addDays(monday, dayOffset);
@@ -1532,24 +1545,29 @@
       const isToday = isSameDay(date, today);
       const alt = i % 2 === 1 ? " alt" : "";
 
-      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:16px; padding:16px 18px;">${d.label}</div>`;
-      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(morning, holiday)}</div>`;
-      rowsHTML += `<div class="st-cell${alt}" style="padding:14px;">${cellHTML(afternoon, holiday)}</div>`;
+      rowsHTML += `<div class="st-day${alt}${holiday ? " holiday" : ""}${isToday ? " today" : ""}" style="font-size:21px; padding:18px 20px;">${d.label}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:16px;">${cellHTML(morning, holiday)}</div>`;
+      rowsHTML += `<div class="st-cell${alt}" style="padding:16px;">${cellHTML(afternoon, holiday)}</div>`;
     });
 
     wrap.innerHTML = `
+      <style>
+        .poster-render .st-chip{ font-size:19px !important; padding:10px 14px !important; line-height:1.4 !important; }
+        .poster-render .st-chip small{ font-size:16px !important; }
+      </style>
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:20px;">
         <div style="display:flex; align-items:center; gap:16px; min-width:0;">
-          <img src="assets/logo.png" alt="" style="width:56px; height:56px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
+          <img src="assets/logo.png" alt="" style="width:64px; height:64px; border-radius:var(--r-lg); object-fit:cover; flex-shrink:0;">
           <div style="min-width:0;">
-            <h1 class="display-sm" style="margin:0; font-size:30px; line-height:1.25;">${escapeHtml(posterTitle)}</h1>
-            <p class="body-sm" style="color:var(--muted); margin:4px 0 0;">${rangeLabel}</p>
+            <h1 class="display-sm" style="margin:0; font-size:40px; line-height:1.25;">${escapeHtml(posterTitle)}</h1>
+            <p class="body-sm" style="color:var(--muted); margin:6px 0 0; font-size:20px;">${rangeLabel}</p>
           </div>
         </div>
       </div>
-      <div class="schedule-table" style="grid-template-columns:150px 1fr 1fr;">${rowsHTML}</div>
+      ${legendHTML}
+      <div class="schedule-table poster-render" style="grid-template-columns:170px 1fr 1fr;">${rowsHTML}</div>
       <div style="margin-top:18px; background:var(--surface-soft); border-radius:var(--r-xl); padding:20px 28px; text-align:center;">
-        <span class="body-sm" style="color:var(--body);">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
+        <span class="body-sm" style="color:var(--body); font-size:17px;">หมายเหตุ : ตารางอาจมีการเปลี่ยนแปลงตามความเหมาะสม</span>
       </div>
     `;
     document.body.appendChild(wrap);
