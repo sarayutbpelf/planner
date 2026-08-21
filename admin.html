@@ -300,6 +300,21 @@
 </div>
 
 <!-- ============ Poster export sheet (official ตารางปฏิบัติงาน format) ============ -->
+<!-- ============ In-page image preview (iOS/standalone-PWA fallback for downloads) ============ -->
+<div class="overlay" id="imagePreviewOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" style="max-width:640px;">
+    <span class="sheet-handle"></span>
+    <div class="sheet-header">
+      <h2 class="title-lg" id="imagePreviewTitle">ตารางปฏิบัติงาน</h2>
+      <button class="sheet-close" data-close="imagePreviewOverlay" aria-label="ปิด">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="body-sm" style="margin-bottom:var(--md);">กดค้างที่รูปด้านล่าง แล้วเลือก "บันทึกรูปภาพ" เพื่อเซฟลงเครื่อง</p>
+    <img id="imagePreviewImg" src="" alt="" style="width:100%; border-radius:var(--r-lg); display:block;">
+  </div>
+</div>
+
 <div class="overlay" id="posterOverlay">
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="posterSheetTitle">
     <span class="sheet-handle"></span>

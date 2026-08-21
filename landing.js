@@ -348,41 +348,28 @@
     const execId = $("#posterExec").value;
     const weekStartInput = $("#posterWeekStart").value;
     if (!execId || !weekStartInput) return;
-    // Must open the tab SYNCHRONOUSLY, inside this direct click/submit handler —
-    // iOS Safari's popup blocker silently neuters window.open() calls made after
-    // any await/async gap (like the html2canvas work below), even though it
-    // doesn't throw or return null. Open a placeholder now, fill it in later.
-    let preOpenedWindow = null;
-    if (isIOS()) {
-      preOpenedWindow = window.open("", "_blank");
-      if (preOpenedWindow) {
-        preOpenedWindow.document.write(`<!DOCTYPE html><html><head><title>กำลังสร้างรูปภาพ...</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0; background:#111; color:#fff; display:flex; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif;">กำลังสร้างรูปภาพ...</body></html>`);
-      }
-    }
-    downloadPoster(execId, new Date(weekStartInput + "T00:00:00"), preOpenedWindow);
+    downloadPoster(execId, new Date(weekStartInput + "T00:00:00"));
   });
+
+  function showImagePreview(dataUrl, title) {
+    $("#imagePreviewTitle").textContent = title;
+    $("#imagePreviewImg").src = dataUrl;
+    openSheet("imagePreviewOverlay");
+  }
 
   // Same exact table structure as the on-screen version (วัน / ช่วงเช้า /
   // ช่วงบ่าย, day rows) — the download is landscape simply because the
   // canvas is rendered wide, not by changing the layout shape.
-  // iOS Safari doesn't reliably honor the `download` attribute on data: URIs —
-  // it often navigates the whole tab to the raw image instead of saving a file,
-  // which looks like "the page/schedule broke" right after the download toast.
-  // Open the image in a new tab instead there, so the user can long-press it →
-  // "Save Image" using the normal iOS flow. `preOpenedWindow`, if given, was
-  // already opened synchronously by the click handler above to dodge Safari's
-  // async-popup block. Returns true if it used that path.
-  function downloadCanvasImage(canvas, filename, preOpenedWindow) {
+  // iOS doesn't reliably honor the `download` attribute on data: URIs, and —
+  // worse — when this app is installed to the Home Screen (standalone PWA
+  // mode), there's no browser chrome at all, so any new tab/window becomes a
+  // dead end with no way back. Show the image directly inside the app instead
+  // (a normal in-page modal), with instructions to long-press it → "Save
+  // Image" — this needs no popup, no new tab, and no back button at all.
+  function downloadCanvasImage(canvas, filename, title) {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
     if (isIOS()) {
-      const win = preOpenedWindow || window.open("", "_blank");
-      if (win && !win.closed) {
-        win.document.open();
-        win.document.write(`<!DOCTYPE html><html><head><title>${filename}</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0; background:#111; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${dataUrl}" style="max-width:100%; height:auto; display:block;"></body></html>`);
-        win.document.close();
-      } else {
-        window.location.href = dataUrl; // popup blocked entirely — fall back to navigating this tab
-      }
+      showImagePreview(dataUrl, title);
       return true;
     }
     const link = document.createElement("a");
@@ -392,7 +379,7 @@
     return false;
   }
 
-  async function downloadPoster(execId, monday, preOpenedWindow) {
+  async function downloadPoster(execId, monday) {
     if (!lastData) return;
     if (typeof html2canvas === "undefined") { toast("ไม่สามารถโหลดตัวสร้างรูปภาพได้"); return; }
     toast("กำลังสร้างตารางปฏิบัติงาน...");
@@ -477,17 +464,12 @@
         });
       }
       const canvas = await html2canvas(wrap, { scale: 3, backgroundColor: "#fffaf0", useCORS: true });
-      const openedInNewTab = downloadCanvasImage(canvas, `${posterTitle}-${fmtISO(monday)}.jpg`, preOpenedWindow);
-      toast(openedInNewTab ? "เปิดรูปภาพในแท็บใหม่แล้ว — กดค้างที่รูปเพื่อบันทึก" : "ดาวน์โหลดตารางปฏิบัติงานแล้ว");
+      const shownInPage = downloadCanvasImage(canvas, `${posterTitle}-${fmtISO(monday)}.jpg`, posterTitle);
+      toast(shownInPage ? "แตะค้างที่รูปเพื่อบันทึกลงเครื่อง" : "ดาวน์โหลดตารางปฏิบัติงานแล้ว");
       closeSheet("posterOverlay");
     } catch (err) {
       console.error(err);
       toast("เกิดข้อผิดพลาดในการสร้างรูปภาพ");
-      if (preOpenedWindow && !preOpenedWindow.closed) {
-        preOpenedWindow.document.open();
-        preOpenedWindow.document.write(`<!DOCTYPE html><html><body style="margin:0; background:#111; color:#fff; display:flex; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; text-align:center; padding:20px;">เกิดข้อผิดพลาดในการสร้างรูปภาพ กรุณาปิดแท็บนี้แล้วลองใหม่</body></html>`);
-        preOpenedWindow.document.close();
-      }
     } finally {
       document.body.removeChild(wrap);
     }
